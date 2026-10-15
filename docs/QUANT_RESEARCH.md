@@ -100,6 +100,10 @@ reported same-day capacity breaches are unresolved execution errors, not proven
 auction fills. Current security-master flags, historical trading states and
 corporate-action revisions still require independent checks. Arithmetic
 verification does not certify these inputs or market execution.
+When a missing historical price is recovered, subsequent total-return factors
+inherit that input's availability time. A late ex-date price cannot change a
+factor while leaving its system-knowledge boundary in the past. The PostgreSQL
+revision fixture tests this propagation using temporary tables and rollback.
 
 The separate raw-history collector defaults to the recent five years, includes
 known delisting evidence, preserves empty/error responses and provides a normal
