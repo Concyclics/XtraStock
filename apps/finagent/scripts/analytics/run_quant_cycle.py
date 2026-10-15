@@ -15,7 +15,7 @@ import pandas as pd
 
 from strategy_dataset import checksum, dump
 from strategy_research import Policy, load_dataset, prepare_features, backtest, paired_comparison
-from quant_learning import MODEL_NAMES, research_features, walk_forward, block_bootstrap_cagr
+from quant_learning import MODEL_NAMES, research_features, walk_forward, block_bootstrap_cagr, evaluation_window
 
 ALLOCATIONS = {
     'equal_full': {},
@@ -32,8 +32,10 @@ def protocol(dataset, forecasts):
     research_policy = json.loads(policy_path.read_text())
     if research_policy['training_lookback_years'] != 3:
         raise ValueError('This experiment currently requires a three-year training window')
+    with np.load(dataset / 'market.npz', allow_pickle=False) as panel:
+        window = evaluation_window(dataset_manifest, panel['dates'], research_policy['feature_warmup_sessions'])
     return {
-        'version': 'quant-cycle-v2',
+        'version': 'quant-cycle-v3',
         'research_policy': research_policy,
         'research_policy_sha256': checksum(policy_path),
         'primary_since': dataset_manifest.get('primary_since'),
@@ -41,12 +43,12 @@ def protocol(dataset, forecasts):
         'forecast_sha256': checksum(forecasts),
         'code': {name: checksum(code / name) for name in
                  ('run_quant_cycle.py', 'quant_learning.py', 'strategy_research.py', 'strategy_dataset.py')},
-        'test_years': [2022, 2023, 2024, 2025], 'horizon': 20, 'models': list(MODEL_NAMES),
+        **window, 'horizon': 20, 'models': list(MODEL_NAMES),
         'allocations': ALLOCATIONS, 'holdings': 40, 'holding_buffer': 1.5, 'max_weight': .05,
         'cost_bps_per_side': research_policy['cost_bps_per_side'], 'cohorts': ['discovery', 'cross_section_reserve'],
         'comparisons': 12, 'alpha': 1000, 'training_years': 3, 'minimum_training_dates': 126,
         'selection': 'All 12 predeclared combinations reported; no test-return-based selection or promotion.',
-        'accounting': 'Continuous cash/share account across years, next-open execution, ACT/365.25 CAGR.',
+        'accounting': 'Continuous cash/share account across years, next-open execution, ACT/365.25 CAGR. Partial-year returns are labeled and excluded from the positive-complete-years gate.',
         'capital': 10000000, 'leverage': 1, 'cash_interest': 0,
         'scope': 'Historical reconstruction; previously inspected years are exploratory, not untouched holdout.',
         'source_gaps': ['Incomplete historical ST/suspension/delisting and auction liquidity.',
@@ -136,7 +138,9 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
     total = (2 + len(spec['models']) * len(allocations)) * len(spec['cohorts']) * len(spec['cost_bps_per_side'])
     simulations = out / 'simulations'
     simulations.mkdir(exist_ok=True)
-    start, end = f"{min(spec['test_years'])}-01-01", f"{max(spec['test_years'])}-12-31"
+    start = f"{min(spec['test_years'])}-01-01"
+    end = spec.get('evaluation_until', f"{max(spec['test_years'])}-12-31")
+    complete_years = {str(year) for year in spec.get('complete_test_years', spec['test_years'])}
     for cohort, cost in itertools.product(spec['cohorts'], spec['cost_bps_per_side']):
         mask = data['cohort'] == cohort
         scope_features = dict(features)
@@ -181,7 +185,10 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
                    'ex_post_capacity_breach': metric['blocked']['ex_post_capacity_breach'],
                    'ex_post_no_volume_fill': metric['blocked']['ex_post_no_volume_fill'],
                    'terminal_stale_value': metric['terminal_stale_value'],
-                   'positive_years': sum(r['return'] > 0 for r in metric['annual'].values()),
+                   'positive_years': sum(r['return'] > 0 for year, r in metric['annual'].items() if year in complete_years),
+                   'positive_partial_years': sum(r['return'] > 0 for year, r in metric['annual'].items() if year not in complete_years),
+                   'complete_evaluation_years': len(complete_years),
+                   'evaluation_start': result['dates'][0], 'evaluation_end': result['dates'][-1],
                    'production_approved': False}
             goal = spec['primary_objective']
             row['numerical_target_pass'] = (row['net_cagr'] > goal['net_cagr_above'] and row['maximum_drawdown'] <= goal['max_drawdown_at_most']
@@ -194,7 +201,9 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
                 annual.append({'model': name, 'allocation': allocation, 'cohort': cohort, 'cost': cost,
                                'year': year, 'horizon': 20, 'net_return': value['return'],
                                'maximum_drawdown': float(-np.min(nav / np.maximum.accumulate(nav)-1)),
-                               'sessions': value['sessions']})
+                               'sessions': value['sessions'], 'is_partial_year': year not in complete_years,
+                               'period_start': result['dates'][int(indices[0])],
+                               'period_end': result['dates'][int(indices[-1])]})
             pd.DataFrame(summaries).to_csv(out / 'COSTED_RESULTS.csv', index=False)
             pd.DataFrame(annual).to_csv(out / 'YEARLY_RESULTS.csv', index=False)
             print(json.dumps({'phase': 'replay', 'completed': len(summaries), 'of': total,

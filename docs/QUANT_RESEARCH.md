@@ -66,6 +66,12 @@ When a panel manifest declares `primary_since`, older rows may initialize rollin
 features only. Both linear and tree learners exclude those rows from supervised
 training, and the execution simulator rejects evaluation before that boundary.
 An early fold with insufficient recent training history fails explicitly.
+Default evaluation years come from the frozen calendar and the shared purged
+training/validation requirements; they are not fixed to particular years.
+For a primary window beginning in late 2021 and ending in October 2026, this
+admits 2023–2026. The 2026 return is labeled as a partial-year return and cannot
+count toward the required positive complete years. The independent verifier
+recomputes that gate and baseline advantages from the saved NAV paths.
 
 The linear cycle tests price, interaction and forecast-availability features.
 The tree cycle uses 72 features when valuation/EPS inputs are supplied, two tree

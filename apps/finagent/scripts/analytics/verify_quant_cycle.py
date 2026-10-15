@@ -34,7 +34,8 @@ def verify(experiment):
     keys = ['model', 'allocation', 'cohort', 'cost']
     if len(table) != expected or len(yearly) != expected * len(protocol['test_years']) or table.duplicated(keys).any():
         raise ValueError('Missing or duplicate experiment results')
-    audit = []
+    audit, recomputed = [], []
+    complete_years = set(protocol.get('complete_test_years', protocol['test_years']))
     for row in table.to_dict('records'):
         path = experiment / 'simulations' / f"{row['cohort']}-cost{row['cost']}-{row['model']}-{row['allocation']}.json.gz"
         with gzip.open(path, 'rt') as stream:
@@ -55,16 +56,51 @@ def verify(experiment):
                 raise ValueError(f'{path.name}: {metric} differs from NAV')
         if any(s['signal_date'] >= s['date'] for s in result['rebalance_log']) or result['metrics']['minimum_cash'] < -.001:
             raise ValueError('Signal timing or cash accounting violation')
+        year_returns = {}
         for year in protocol['test_years']:
             indices = [i for i, day in enumerate(dates) if day.startswith(str(year))]
+            if not indices:
+                raise ValueError('Requested evaluation year has no scored sessions')
             year_return = nav[indices[-1]+1] / nav[indices[0]] - 1
+            year_returns[year] = year_return
             subset = yearly
             for key in keys:
                 subset = subset[subset[key] == row[key]]
             subset = subset[subset.year == year]
             if len(subset) != 1 or not np.isclose(subset.iloc[0].net_return, year_return, atol=1e-10, rtol=0):
                 raise ValueError('Yearly result differs from NAV')
+            if 'complete_test_years' in protocol:
+                record = subset.iloc[0]
+                if (bool(record.is_partial_year) != (year not in complete_years)
+                        or record.period_start != dates[indices[0]] or record.period_end != dates[indices[-1]]):
+                    raise ValueError('Full-year/partial-year reporting differs from the scored calendar')
+        positive_years = sum(value > 0 for year, value in year_returns.items() if year in complete_years)
+        if row['positive_years'] != positive_years:
+            raise ValueError('Positive full-year count differs from NAV')
+        if 'complete_test_years' in protocol and (
+                row['evaluation_start'] != dates[0] or row['evaluation_end'] != dates[-1]
+                or row['complete_evaluation_years'] != len(complete_years)
+                or row['positive_partial_years'] != sum(value > 0 for year, value in year_returns.items() if year not in complete_years)):
+            raise ValueError('Evaluation interval or partial-year count differs')
+        if protocol.get('evaluation_until') and dates[-1] != protocol['evaluation_until']:
+            raise ValueError('Evaluation stopped before the declared final session')
+        recomputed.append((row, checks, positive_years))
         audit.append({'file': path.name, 'sha256': checksum(path), 'metrics_match': True})
+    baselines = {(row['cohort'], row['cost']): checks for row, checks, _ in recomputed
+                 if row['model'] == 'equal_weight' and row['allocation'] == 'benchmark'}
+    goal = protocol['primary_objective']
+    for row, checks, positives in recomputed:
+        baseline = baselines[(row['cohort'], row['cost'])]
+        excess = checks['net_cagr'] - baseline['net_cagr']
+        win_difference = checks['period_win_rate'] - baseline['period_win_rate']
+        if not np.isclose(row['cagr_excess'], excess, atol=1e-10, rtol=0) or not np.isclose(row['win_rate_difference'], win_difference, atol=1e-10, rtol=0):
+            raise ValueError('Reported baseline advantage differs from independently recomputed NAV')
+        passed = (checks['net_cagr'] > goal['net_cagr_above']
+                  and checks['maximum_drawdown'] <= goal['max_drawdown_at_most']
+                  and checks['period_win_rate'] >= goal['period_win_rate_at_least']
+                  and positives >= goal['positive_years_at_least'] and excess > 0 and win_difference > 0)
+        if bool(row['numerical_target_pass']) != bool(passed):
+            raise ValueError('Numerical target gate differs from independently recomputed NAV')
     for fold in json.loads((experiment / 'TRAINING_FOLDS.json').read_text()):
         if protocol.get('primary_since') and fold['train_signal_first'] < protocol['primary_since']:
             raise ValueError('Training used feature warm-up rows outside the primary research window')

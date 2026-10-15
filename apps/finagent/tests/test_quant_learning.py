@@ -6,7 +6,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts/analytics'))
 from strategy_research import Policy, backtest, capped_weights, buffered_selection, metrics, prepare_features
-from quant_learning import labels, research_features, fit_ridge, predict, block_bootstrap_cagr, purged_training_dates
+from quant_learning import labels, research_features, fit_ridge, predict, block_bootstrap_cagr, purged_training_dates, evaluation_window
 try:
     from tests.test_strategy_research import constant_case, toy
 except ModuleNotFoundError:
@@ -75,6 +75,33 @@ class CausalExecutionTests(unittest.TestCase):
 
 
 class LearningTests(unittest.TestCase):
+    def test_recent_calendar_keeps_current_partial_year_and_excludes_short_training(self):
+        days = np.arange(np.datetime64('2020-09-24'), np.datetime64('2026-10-16'))
+        dates = days[np.is_busday(days)].astype(str)
+        window = evaluation_window({'primary_since': '2021-10-15', 'until': '2026-10-15'}, dates)
+        self.assertEqual(window['test_years'], [2023, 2024, 2025, 2026])
+        self.assertEqual(window['complete_test_years'], [2023, 2024, 2025])
+        self.assertEqual(window['partial_test_years'], [2026])
+        self.assertEqual(window['evaluation_until'], '2026-10-15')
+
+    def test_legacy_panel_retains_its_four_feasible_calendar_folds(self):
+        days = np.arange(np.datetime64('2020-01-01'), np.datetime64('2026-01-01'))
+        dates = days[np.is_busday(days)].astype(str)
+        window = evaluation_window({'since': '2020-01-01', 'until': '2025-12-31'}, dates)
+        self.assertEqual(window['test_years'], [2022, 2023, 2024, 2025])
+        self.assertEqual(window['partial_test_years'], [])
+
+    def test_short_recent_window_cannot_silently_use_older_training(self):
+        days = np.arange(np.datetime64('2020-01-01'), np.datetime64('2026-01-01'))
+        dates = days[np.is_busday(days)].astype(str)
+        with self.assertRaisesRegex(ValueError, 'sufficient purged training'):
+            evaluation_window({'primary_since': '2025-09-01', 'until': '2025-12-31'}, dates)
+
+    def test_calendar_boundary_cannot_be_later_than_the_frozen_manifest(self):
+        dates = np.arange(np.datetime64('2020-01-01'), np.datetime64('2026-01-01')).astype(str)
+        with self.assertRaisesRegex(ValueError, 'manifest boundary'):
+            evaluation_window({'until': '2024-12-31'}, dates)
+
     def test_feature_warmup_does_not_become_training_labels(self):
         dates = np.arange(np.datetime64('2020-01-01'), np.datetime64('2023-02-01')).astype(str)
         permitted, first = purged_training_dates(dates, 2023, 20, '2021-10-15')

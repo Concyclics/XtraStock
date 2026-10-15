@@ -19,9 +19,12 @@ def protocol(dataset, forecasts, reference):
     code = Path(__file__).parent
     reference_receipt = json.loads((reference.parent / 'PREDICTION_RECEIPT.json').read_text())
     reference_protocol = reference.parent / 'PROTOCOL.json'
+    reference_spec = json.loads(reference_protocol.read_text())
     if (checksum(reference) != reference_receipt['sha256']
             or checksum(reference_protocol) != reference_receipt['protocol_sha256']
-            or json.loads(reference_protocol.read_text())['source'] != spec['source']):
+            or reference_spec['source'] != spec['source']
+            or reference_spec['test_years'] != spec['test_years']
+            or reference_spec['forecast_sha256'] != spec['forecast_sha256']):
         raise ValueError('Reference predictions do not match their receipt or the current market panel')
     spec.update(version='quant-tree-cycle-v1', models=[*MODEL_NAMES, 'ridge_price_reference'],
                 allocations={'equal_full': {}, 'inverse_full': {'weighting': 'inverse_volatility'}},

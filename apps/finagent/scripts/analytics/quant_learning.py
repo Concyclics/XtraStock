@@ -15,6 +15,39 @@ PRICE_NAMES = ('r5', 'r20', 'r60', 'r120', 'vol20', 'vol60', 'drawdown20',
                'log_volume_ratio', 'log_adv', 'relative_r20', 'market_r20', 'market_vol20', 'trend120')
 
 
+def evaluation_window(manifest, dates, warmup_sessions=252):
+    """Choose calendar folds before reading returns, with two purged splits.
+
+    The shared ridge/tree comparison needs 126 inner training sessions, 63
+    validation sessions and two 20-session label gaps. Actual usable labels
+    are checked again at fitting time; calendar feasibility is not data quality.
+    """
+    dates = np.asarray(dates)
+    if warmup_sessions < 0 or len(dates) <= warmup_sessions:
+        raise ValueError('insufficient calendar for feature warm-up')
+    if not (dates[1:] > dates[:-1]).all():
+        raise ValueError('calendar must be unique and increasing')
+    primary = max(str(manifest.get('primary_since') or dates[0]), str(dates[warmup_sessions]))
+    until = str(manifest.get('until') or dates[-1])
+    if dates[-1] > until:
+        raise ValueError('market calendar exceeds its manifest boundary')
+    years, skipped = [], []
+    for year in sorted({int(day[:4]) for day in dates if day >= primary}):
+        permitted, first = purged_training_dates(dates, year, 20, primary)
+        days = np.flatnonzero(permitted)
+        if len(days) < 63 or np.count_nonzero(days + 20 < days[-63]) < 126:
+            skipped.append(year)
+        else:
+            years.append(year)
+    if not years:
+        raise ValueError('no calendar year has sufficient purged training history')
+    complete = [year for year in years if primary <= f'{year}-01-01' and until >= f'{year}-12-31']
+    return {'test_years': years, 'complete_test_years': complete,
+            'partial_test_years': [year for year in years if year not in complete],
+            'calendar_only_skipped_years': skipped,
+            'evaluation_until': min(until, str(dates[-1]))}
+
+
 def price_features(data, features):
     adj = np.where((data['adjustment_quality'] > 0) & (data['adjustment_quality'] < 3),
                    data['close'] * data['total_return_factor'], np.nan)
