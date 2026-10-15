@@ -80,6 +80,15 @@ receivables, turnover, stale marks and incomplete fills. Annualized return uses
 ACT/365.25 calendar time; Sharpe uses a separately stated 252-session convention.
 Bootstrap intervals are exploratory and do not correct for repeated strategy search.
 
+Risk experiments can explicitly set `vol_estimator="portfolio"`. This estimates
+the planned stock basket from at most 60 past sessions, requires 40 complete
+observations, and mixes sample covariance with 25% diagonal covariance. These
+are configurable research parameters, not an implementation of optimal
+Ledoit–Wolf shrinkage. The simulator records the estimate and usable observations
+at each risk decision; unavailable history produces no new target exposure.
+The existing market-volatility estimator remains available as a comparison.
+Unfilled orders can make actual holdings differ from the planned risk budget.
+
 Opening orders use only prior-session liquidity and an observed open. The
 reported same-day capacity breaches are unresolved execution errors, not proven
 auction fills. Current security-master flags, historical trading states and

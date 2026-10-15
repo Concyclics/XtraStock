@@ -35,10 +35,40 @@ class Policy:
     holding_buffer: float = 1.0
     exposure_floor: float = 0.0
     risk_rebalance: int | None = None
+    vol_estimator: str = 'market'
+    vol_window: int = 60
+    vol_min_observations: int = 40
+    covariance_shrinkage: float = .25
 
     @property
     def name(self):
-        return f'{self.family}-h{self.rebalance}-k{self.size}-{self.regime}' + (f'-v{self.target_vol}' if self.target_vol else '')
+        return (f'{self.family}-h{self.rebalance}-k{self.size}-{self.regime}'
+                + (f'-v{self.target_vol}' if self.target_vol else '')
+                + (f'-{self.vol_estimator}-w{self.vol_window}' if self.vol_estimator != 'market' else ''))
+
+
+def portfolio_volatility(returns, signal_index, columns, weights, window=60, minimum=40, shrinkage=.25):
+    """Lagged risk of planned stock weights, with fixed diagonal shrinkage.
+
+    This is a predeclared simple estimator, not the optimal Ledoit-Wolf formula.
+    Missing observations are not zero returns. Cash has zero weight and returns;
+    unfilled orders may make the actual portfolio differ from the planned basket.
+    """
+    if minimum < 2 or window < minimum or not 0 <= shrinkage <= 1:
+        raise ValueError('invalid portfolio risk estimator')
+    weights=np.asarray(weights,float);columns=np.asarray(columns,int)
+    if len(weights)!=len(columns) or np.any(~np.isfinite(weights)) or np.any(weights<0) or weights.sum()>1+1e-9:
+        raise ValueError('invalid portfolio risk weights')
+    if not len(columns):return float('nan'),0
+    if not 0<=signal_index<len(returns):raise ValueError('invalid risk signal date')
+    history=np.asarray(returns[max(0,signal_index-window+1):signal_index+1,columns],float)
+    history=history[np.isfinite(history).all(axis=1)]
+    count=len(history)
+    if count<minimum:return float('nan'),count
+    basket_variance=float(np.var(history@weights,ddof=1))
+    diagonal_variance=float(np.sum(weights**2*np.var(history,axis=0,ddof=1)))
+    variance=(1-shrinkage)*basket_variance+shrinkage*diagonal_variance
+    return float(np.sqrt(max(0.,variance)*252)),count
 
 
 def capped_weights(raw, cap):
@@ -226,6 +256,9 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
         raise ValueError('invalid selection policy')
     if policy.target_vol is not None and policy.target_vol<=0:raise ValueError('invalid volatility budget')
     if policy.risk_rebalance is not None and policy.risk_rebalance<1:raise ValueError('invalid risk cadence')
+    if policy.vol_estimator not in ('market','portfolio'):raise ValueError('unknown volatility estimator')
+    if policy.vol_min_observations<2 or policy.vol_window<policy.vol_min_observations or not 0<=policy.covariance_shrinkage<=1:
+        raise ValueError('invalid portfolio risk estimator')
     dates=d['dates'];indices=np.flatnonzero((dates>=start)&(dates<=end))
     if not len(indices) or indices[0]<policy.signal_lag:raise ValueError('insufficient warmup/calendar')
     n=len(d['symbols']);q=np.zeros(n);cash=policy.initial_cash;receivables=0.;payables={}
@@ -272,12 +305,8 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
                        else buffered_selection(scores,q,policy.size,policy.holding_buffer))
             allocation=1.0
             if policy.regime=='lagged_market_trend' and not f['market_on'][s]:allocation=policy.exposure_floor
-            if policy.target_vol is not None:
-                vol=f['market_vol'][s]
-                allocation*=min(1.,policy.target_vol/max(float(vol),.05)) if np.isfinite(vol) else 0.
-            equity=cash+float(q@np.nan_to_num(open_price))+receivables
-            target=np.zeros(n)
-            if len(order) and allocation>0:
+            weights=np.empty(0)
+            if len(order):
                 raw=np.ones(len(order))
                 if policy.weighting=='inverse_volatility':
                     volatility=f['vol20'][s,order]
@@ -285,6 +314,17 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
                     usable=np.isfinite(volatility)&(volatility>0)
                     order=order[usable];raw=1/np.maximum(volatility[usable],.005)
                 weights=capped_weights(raw,policy.max_weight)
+            estimated_vol=None;risk_observations=None
+            if policy.target_vol is not None:
+                if policy.vol_estimator=='portfolio':
+                    vol,risk_observations=portfolio_volatility(f['returns'],s,order,weights,
+                        policy.vol_window,policy.vol_min_observations,policy.covariance_shrinkage)
+                else:vol=f['market_vol'][s]
+                estimated_vol=float(vol) if np.isfinite(vol) else None
+                allocation*=min(1.,policy.target_vol/max(float(vol),.05)) if np.isfinite(vol) else 0.
+            equity=cash+float(q@np.nan_to_num(open_price))+receivables
+            target=np.zeros(n)
+            if len(order) and allocation>0:
                 good=order[np.isfinite(open_price[order])&(open_price[order]>0)]
                 good_weights=weights[np.isfinite(open_price[order])&(open_price[order]>0)]
                 target[good]=np.floor(equity*allocation*good_weights/open_price[good]/lots[good])*lots[good]
@@ -345,6 +385,8 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
             step_log.append({'date':str(dates[t]),'signal_date':str(dates[t-policy.signal_lag]),'cash':cash,'nav':wealth,
                              'positions':int(held.sum()),'exposure':marked/wealth,'turnover':turnover,
                              'selection_due':selection_due,'target_allocation':allocation,
+                             'vol_estimator':policy.vol_estimator,'estimated_annual_volatility':estimated_vol,
+                             'risk_observations':risk_observations,
                              'buy_notional':float(np.nan_to_num(buys*open_price).sum()),
                              'sell_notional':float(sold.sum()),'selected_symbols':d['symbols'][order].tolist()})
     # Mark open positions and charge a liquidation fee provision, without
