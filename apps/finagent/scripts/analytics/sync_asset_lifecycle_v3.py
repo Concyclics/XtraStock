@@ -20,7 +20,7 @@ from v3_ops import record_quality, set_dataset_watermark, stage_run  # noqa: E40
 
 # Append-only inferred snapshots. A missing price does not establish a suspension
 # or delisting. Actual delisting is inclusive; any gap before it remains unknown.
-BASELINE_SQL = """
+BASELINE_SQL = r"""
 WITH target_assets AS MATERIALIZED (
   SELECT * FROM market.assets WHERE asset_type IN ('stock','index','fund')
     AND NOT (metadata ? 'identity_alias_of')
