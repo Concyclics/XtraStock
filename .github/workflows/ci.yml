@@ -12,6 +12,8 @@ jobs:
         with:
           python-version: '3.11'
           cache: pip
+      - name: Install PDF extraction dependency
+        run: sudo apt-get update -qq && sudo apt-get install -y --no-install-recommends poppler-utils
       - name: Install workspace
         run: |
           python -m venv .venv

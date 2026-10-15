@@ -22,7 +22,7 @@
 
 ## 本地开发
 
-需要 Python 3.11+、Git；数据库开发另需 Docker。推荐 Linux / WSL2，保留 Git 符号链接。
+需要 Python 3.11+、Git 和 `poppler-utils`（公告 PDF 正文解析使用 `pdftotext`）；数据库开发另需 Docker。推荐 Linux / WSL2，保留 Git 符号链接。Ubuntu / Debian 可先执行 `sudo apt-get install poppler-utils postgresql-client`。
 
 ```bash
 git clone https://github.com/Concyclics/XtraStock.git

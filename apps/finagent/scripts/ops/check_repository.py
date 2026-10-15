@@ -5,6 +5,7 @@ import argparse
 import ast
 import datetime as dt
 import json
+import shutil
 from pathlib import Path
 import sys
 
@@ -16,6 +17,8 @@ from scripts.ops.deploy_finagent import available_units,deployment_plan,REQUIRED
 
 def audit(database=False):
     errors=[];warnings=[]
+    if shutil.which('pdftotext') is None:
+        errors.append('Missing pdftotext: install poppler-utils for announcement PDF extraction')
     components=json.loads((APP/'config/repository_components.json').read_text())['components']
     for item in components:
         if not (APP/item['path']).exists():errors.append('Missing component: '+item['path'])
