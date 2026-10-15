@@ -1,0 +1,12 @@
+[Unit]
+Description=FinAgent register research datasets and checksummed experiment results
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Type=oneshot
+WorkingDirectory=@APP@
+ExecStart=@REPO@/.venv/bin/python scripts/analytics/research_asset_registry.py --output @APP@/logs/research_asset_registry.json
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=1h

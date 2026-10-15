@@ -1,0 +1,12 @@
+{
+  "engine_type": "openai_compatible_xtrastock",
+  "engines": {"openai_compatible_xtrastock": {}},
+  "connector_type": "terminal",
+  "tool_profile": "finance_research",
+  "tool_calling_mode": "native",
+  "browser": {"enabled": false},
+  "finance_v3": {
+    "answer_guard_enabled": true,
+    "agentic_loop": {"enabled": true, "few_shot_enabled": true, "max_stages": 4, "max_model_calls": 28, "max_seconds": 600}
+  }
+}

@@ -1,0 +1,43 @@
+"""Canonical dataset definitions shared by registration and repository audits.
+
+SQL and derived indexes are different grains; this catalog never certifies coverage.
+"""
+
+DATASETS=[
+ ('research.reports_resolved','规范化证券身份的研报','sql','research.reports_resolved','document_id','分析按当前规范证券身份连接，原报告代码与身份实际可见时点保留；采集仍写原始research.reports。',['corpus.documents','market.lifecycle']),
+ ('company.filings','官方公告元数据与正文入口','sql','company.filings','filing_id','公告目录记录不代表PDF、正文或OCR均完整；关联统一文档及附件。',['corpus.documents']),
+ ('corpus.document_quality','正文质量与解析覆盖','sql','corpus.document_quality','document_id','原生正文、完整OCR、检索及向量是不同状态，不以任一成功推断全部完成。',['corpus.documents']),
+ ('market.trading_calendar','实际交易日历','sql','market.trading_calendar','exchange + trade_date','按交易所和实际交易日判断，不能用自然日直接推算交易窗口。',[]),
+ ('market.asset_lifecycle_versions','证券生命周期版本','sql','market.asset_lifecycle_versions','asset_id + validity/version','使用退市、停牌、代码变更及实际知识可见时点，历史重建须另行标识。',[]),
+ ('market.adjustment_factors_daily','每日复权因子版本','sql','market.adjustment_factors_daily','asset_id + date + version','按公司行动证据与版本使用；未核实复权不得视为已验证总收益。',['market.corporate_actions']),
+ ('agent.daily_data_gate','日报数据门槛','sql','ops.dataset_watermarks','dataset_key + partition_key','dataset_key=agent.daily_data_gate；仅表示记录的依赖验收，不能把旧日期或部分历史覆盖当作全量完成。',['ops.analysis_readiness']),
+ ('ops.document_body_recovery','缺失正文补采状态','sql','ops.document_body_recovery','document_id','保留原件不可用、身份待核实及解析错误；重试入队不等于恢复成功。',['corpus.documents']),
+ ('ops.ocr_queue','OCR调度与结果状态','sql','ops.ocr_queue','queue entry/document','运行、失败、完成及内容验收分开；非零退出不应计入成功。',['corpus.attachments']),
+ ('corpus.documents','统一文档正文','sql','corpus.documents','document_id','正文、来源和实际入库时间；存在记录不保证正文完整。',[]),
+ ('corpus.attachments','原始附件与OCR','files','app/PDF;app/PDF_ind;app/filings;app/Spider','document_id + file_role + file_path','通过corpus.document_files定位；保留原件，不能只备份SQL。',['corpus.documents']),
+ ('corpus.document_embeddings','当前语义向量','sql','corpus.document_embeddings_v2','document_id + chunk_id + embedding_model','使用模型及源内容版本匹配覆盖率；旧模型不能合并计为新模型覆盖。',['corpus.documents']),
+ ('market.canonical_bars_daily_v2','标准行情','sql','market.canonical_bars_daily_v2','asset_id + dt','按实际交易日、价格口径及可见时间读取，不能混用原始多来源日线。',[]),
+ ('company.financial_facts','实际与预测财务事实','sql','company.financial_facts','asset + metric + kind + period + source + revision','实际与预测、公司总额与分部口径、EPS元/股与净利润元必须区分。',['corpus.documents']),
+ ('research.report_forecasts_usable','验证语义的研报预测','sql','research.report_forecasts_usable','document_id + forecast_year','只用语义合格视图，保留原始预测年、单位及证据；回填不是历史实时可见。',['corpus.documents']),
+ ('kg.temporal_graph','时态图谱','sql','kg.relation_versions','relation_version_id','同时检查世界时间、知识时间、证据及审核状态。',['corpus.documents']),
+ ('analytics.graph_feature_daily','图谱日特征','sql','analytics.graph_feature_daily','asset_id + dt','日期存在不代表全图刷新成功。',['kg.temporal_graph']),
+ ('factor.feature_daily','因子输入','sql','factor.feature_daily','asset_id + dt','数据可用时点与研究重建模式分别记录。',['market.canonical_bars_daily_v2','analytics.graph_feature_daily']),
+ ('factor.daily_scores','可用因子得分','sql','factor.valid_daily_scores_v1','asset_id + dt + factor_id','使用有效视图，核对版本、全样本及可见时间。',['factor.feature_daily']),
+ ('market.corporate_actions','公司行动与复权','sql','market.corporate_actions;market.adjustment_factors_daily','asset_id + event/version/date','价格收益必须匹配复权版本；缺失公司行动不能用零值替代。',['market.canonical_bars_daily_v2']),
+ ('market.lifecycle','证券身份与交易状态','sql','market.assets;market.asset_lifecycle_versions;market.trading_calendar','asset_id + validity interval','区分代码变更、退市、停牌及非交易日。',[]),
+ ('company.financial_metrics','结构化财务指标','sql','company.financial_statement_metrics','asset + period + metric + revision','从有来源、单位和口径的财务事实派生；不把缺项填成零。',['company.financial_facts']),
+ ('factor.research','因子定义、评价与生命周期','sql','factor.definitions;factor.factor_health_daily','factor_id + version/date','candidate、shadow、retired、production分别使用；登记不等于批准。',['factor.daily_scores']),
+ ('analytics.forecast_models','预测模型与学习结果','sql','analytics.forecast_models;analytics.learning_models_v1','model_id/version','模型参数和验证记录以SQL为准；研究模型不自动提供生产预测。',['factor.feature_daily']),
+ ('analytics.forecast_outputs','预测输出及其证据','sql','analytics.asset_forecast_daily','asset + date + horizon + model','须同时核对批准、可见时点和基线/成本验收，不能只按有数值使用。',['analytics.forecast_models']),
+ ('analytics.research_focus','动态研究关注','sql','analytics.research_focus_runs;analytics.research_focus_revisions','run_id + focus_key','保留入选理由、证据和实际决策时间。',['kg.temporal_graph','factor.daily_scores']),
+ ('ops.analysis_readiness','分析依赖与质量状态','sql','ops.dataset_watermarks;analytics.dataset_coverage_latest;ops.crawler_runs;quant.repair_queue','dataset/partition or pipeline/run','读取日期、版本、上游退出状态和待修复历史区间；有记录不代表完整。',[]),
+ ('analytics.candidate_pool','候选股票池','sql','analytics.candidate_pool_revisions','run + stock','研究池排序不是收益预测。',['factor.daily_scores']),
+ ('research.experiments','离线实验与数据矩阵','files','research','relative_path + sha256','research.experiment_artifacts登记位置和内容版本；artifact_records保存小型结果；不自动批准预测。',[]),
+ ('agent.reports','日报与证据','sql','agent.report_runs;agent.report_claims','report_run + claim','模型只能使用有时点、来源和质量标记的证据。',['factor.daily_scores','kg.temporal_graph']),
+ ('source.eastmoney_sqlite','研报采集源','sqlite','app/eastmoney_reports.sqlite3','report URL','采集缓存，经版本台账增量入库。',[]),
+ ('source.xinhua_sqlite','新华采集源','sqlite','app/Spider/XinhuaDaily/xinhua_daily.sqlite3','source article identity','原始采集缓存，正文经增量台账进入统一文档库；缓存行数不是内容验收。',[]),
+ ('source.peoples_daily','人民日报采集原件','files','app/Spider/PeoplesDaily/data;app/Spider/PeoplesDaily/peoples_daily.sqlite3','article text path + page metadata','正文以TXT为导入来源，SQLite提供版面元数据，两者均需保留。',[]),
+ ('ops.source_import_versions','增量采集版本台账','sql','ops.source_import_versions','source + record key + version','用于对账来源与目标文档；台账行数与文档粒度不同，不直接相减认定丢失。',['corpus.documents']),
+ ('corpus.document_search_index','数据库全文检索','sql','corpus.document_search_index','document_id + source_updated_at','派生索引；核对索引源版本后才能确认新正文已可检索。',['corpus.documents']),
+ ('agent.report_files','日报生成与验收附件','files','app/analysis/AI_Hardware','report date + run','日报正文、输入快照和本地生成附件；关联agent.report_runs及report_claims，不能只备份SQL。',['agent.reports']),
+ ('search.meilisearch','关键词辅助索引','search_index','finance_documents;finance_recent_documents','index + document_id','派生索引；不同索引重叠，不能相加当文档数。',['corpus.documents'])]

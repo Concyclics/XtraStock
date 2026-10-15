@@ -1,0 +1,10 @@
+[Unit]
+Description=Register new FinAgent research artifacts hourly
+
+[Timer]
+OnCalendar=*-*-* *:35:00 Asia/Shanghai
+Persistent=true
+Unit=finance-research-registry.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run weekly finance factor research after weekend maintenance
+
+[Timer]
+OnCalendar=Sun *-*-* 06:30:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=300
+Unit=finance-factor-research.service
+
+[Install]
+WantedBy=timers.target

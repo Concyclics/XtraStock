@@ -1,0 +1,10 @@
+[Unit]
+Description=Synchronize changed finance documents into search indexes
+
+[Timer]
+OnCalendar=*:0/10 Asia/Shanghai
+Persistent=true
+Unit=finance-document-index.service
+
+[Install]
+WantedBy=timers.target

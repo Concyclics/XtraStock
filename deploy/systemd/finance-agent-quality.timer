@@ -1,0 +1,11 @@
+[Unit]
+Description=Run daily finance-agent quality gates
+
+[Timer]
+OnCalendar=*-*-* 04:10:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=120
+Unit=finance-agent-quality.service
+
+[Install]
+WantedBy=timers.target

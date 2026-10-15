@@ -1,0 +1,192 @@
+{
+  "version": 1,
+  "components": [
+    {
+      "name": "report_collection",
+      "path": "eastmoney_reports_incremental.py",
+      "kind": "source",
+      "status": "active",
+      "writes": [
+        "source.eastmoney_sqlite"
+      ]
+    },
+    {
+      "name": "market_collection",
+      "path": "Spider/eastmoney",
+      "kind": "source",
+      "status": "active",
+      "writes": [
+        "market",
+        "company",
+        "macro"
+      ]
+    },
+    {
+      "name": "newspaper_collection",
+      "path": "scripts/pipeline/daily_news_incremental.py",
+      "kind": "source",
+      "status": "active",
+      "writes": [
+        "source.peoples_daily",
+        "source.xinhua_sqlite"
+      ]
+    },
+    {
+      "name": "official_filings",
+      "path": "scripts/pipeline/daily_cninfo_filings.py",
+      "kind": "source",
+      "status": "active",
+      "writes": [
+        "company.filings",
+        "corpus.documents"
+      ]
+    },
+    {
+      "name": "incremental_ingest",
+      "path": "scripts/pipeline/incremental_import.py",
+      "kind": "pipeline",
+      "status": "active",
+      "writes": [
+        "corpus.documents",
+        "research.reports",
+        "ops.source_import_versions"
+      ]
+    },
+    {
+      "name": "body_recovery",
+      "path": "scripts/pipeline/backfill_missing_report_bodies.py",
+      "kind": "repair",
+      "status": "manual",
+      "writes": [
+        "ops.document_body_recovery",
+        "corpus.documents"
+      ]
+    },
+    {
+      "name": "ocr",
+      "path": "scripts/pipeline/ocr_worker.py",
+      "kind": "pipeline",
+      "status": "active",
+      "writes": [
+        "ops.ocr_queue",
+        "corpus.document_files"
+      ]
+    },
+    {
+      "name": "search",
+      "path": "scripts/search",
+      "kind": "derived",
+      "status": "active",
+      "writes": [
+        "corpus.document_search_index",
+        "corpus.document_embeddings_v2"
+      ]
+    },
+    {
+      "name": "analytics",
+      "path": "scripts/analytics",
+      "kind": "derived",
+      "status": "active",
+      "writes": [
+        "company",
+        "analytics",
+        "kg",
+        "factor",
+        "quant"
+      ]
+    },
+    {
+      "name": "dataset_registry",
+      "path": "scripts/analytics/data_asset_contracts.py",
+      "kind": "contract",
+      "status": "active",
+      "writes": [
+        "ops.data_asset_registry"
+      ]
+    },
+    {
+      "name": "research_registry",
+      "path": "scripts/analytics/research_asset_registry.py",
+      "kind": "pipeline",
+      "status": "active",
+      "writes": [
+        "research.experiment_artifacts",
+        "research.artifact_records"
+      ]
+    },
+    {
+      "name": "agent",
+      "path": "MMClaw",
+      "kind": "workspace_package",
+      "status": "active",
+      "writes": [
+        "agent"
+      ]
+    },
+    {
+      "name": "controller",
+      "path": "scripts/pipeline/finance_pipeline_controller.py",
+      "kind": "scheduler",
+      "status": "active",
+      "writes": [
+        "ops.pipeline_runs_v3"
+      ]
+    },
+    {
+      "name": "runtime",
+      "path": "runtime",
+      "kind": "model_gateway",
+      "status": "active",
+      "writes": []
+    },
+    {
+      "name": "deployment",
+      "path": "scripts/ops",
+      "kind": "operations",
+      "status": "active",
+      "writes": []
+    },
+    {
+      "name": "units",
+      "path": "systemd",
+      "kind": "deployment",
+      "status": "active",
+      "writes": []
+    },
+    {
+      "name": "sql_baseline",
+      "path": "docker/postgres",
+      "kind": "schema",
+      "status": "manual",
+      "writes": []
+    },
+    {
+      "name": "sql_additions",
+      "path": "sql",
+      "kind": "schema",
+      "status": "manual",
+      "writes": []
+    },
+    {
+      "name": "legacy_report",
+      "path": "report.py",
+      "kind": "legacy",
+      "status": "reference_only",
+      "writes": []
+    },
+    {
+      "name": "legacy_industry",
+      "path": "industry.py",
+      "kind": "legacy",
+      "status": "reference_only",
+      "writes": []
+    },
+    {
+      "name": "legacy_newspaper",
+      "path": "Spider/PeoplesDaily/RenMinDaily.py",
+      "kind": "legacy",
+      "status": "reference_only",
+      "writes": []
+    }
+  ]
+}

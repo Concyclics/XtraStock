@@ -1,0 +1,34 @@
+name: xtrastock-dev
+services:
+  postgres:
+    build:
+      context: ..
+      dockerfile: database/postgres/Dockerfile
+    shm_size: 512mb
+    command: [postgres, -c, shared_preload_libraries=timescaledb,pg_stat_statements]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-finance_corpus}
+      POSTGRES_USER: ${POSTGRES_USER:-finance_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set a local admin password}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-finance_app}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set a local app password}
+      AI_READONLY_DB_USER: ${AI_READONLY_DB_USER:-finance_ai_reader}
+      AI_READONLY_DB_PASSWORD: ${AI_READONLY_DB_PASSWORD:?Set a local reader password}
+    ports: ["127.0.0.1:${FINANCE_PGPORT:-5432}:5432"]
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+  meilisearch:
+    image: getmeili/meilisearch:v1.13
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?Set a local search key}
+      MEILI_NO_ANALYTICS: "true"
+    ports: ["127.0.0.1:${MEILI_PORT:-7700}:7700"]
+    volumes: [search-data:/meili_data]
+volumes:
+  postgres-data:
+  search-data:

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run finance news incremental import every morning
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 Asia/Shanghai
+Persistent=true
+Unit=finance-news-daily.service
+
+[Install]
+WantedBy=timers.target

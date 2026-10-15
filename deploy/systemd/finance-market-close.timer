@@ -1,0 +1,10 @@
+[Unit]
+Description=Run finance market close crawl
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 17:05:00 Asia/Shanghai
+Persistent=false
+Unit=finance-market-close.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,20 @@
+[Unit]
+Description=FinAgent local DeepSeek OCR 2 model
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Type=simple
+WorkingDirectory=@REPO@/services/model_gateway
+UMask=0077
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin
+Environment=VLLM_USE_FLASHINFER_SAMPLER=0
+Environment=CUDA_VISIBLE_DEVICES=@OCR_GPU@
+Environment=HF_HUB_OFFLINE=1
+Environment=TOKENIZERS_PARALLELISM=false
+ExecStart=@VLLM_BIN@ serve @MODELS@/DeepSeek-OCR-2 --served-model-name deepseek-ai/DeepSeek-OCR-2 --host 127.0.0.1 --port 8083 --dtype bfloat16 --gpu-memory-utilization 0.55 --max-model-len 8192 --max-num-seqs 2 --max-num-batched-tokens 8192 --enforce-eager --no-enable-prefix-caching --mm-processor-cache-gb 0 --logits-processors vllm.model_executor.models.deepseek_ocr:NGramPerReqLogitsProcessor
+Restart=no
+TimeoutStopSec=90

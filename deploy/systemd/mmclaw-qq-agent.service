@@ -1,0 +1,22 @@
+[Unit]
+Description=MMClaw QQ finance agent
+After=network-online.target finance-pipeline-controller.service
+Wants=network-online.target
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Environment=PATH=@REPO@/services/model_gateway/bin:@REPO@/.venv/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=TZ=Asia/Shanghai
+Type=simple
+WorkingDirectory=@REPO@/packages/mmclaw
+Environment=PYTHONUNBUFFERED=1
+Environment=FINANCE_ROOT=@APP@
+EnvironmentFile=-@REPO@/.env
+ExecStart=@REPO@/.venv/bin/python -m mmclaw.main -w @WORKSPACES@/qq_agent
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

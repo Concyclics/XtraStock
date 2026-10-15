@@ -1,0 +1,10 @@
+[Unit]
+Description=Run finance market midday crawl
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 11:45:00 Asia/Shanghai
+Persistent=false
+Unit=finance-market-midday.service
+
+[Install]
+WantedBy=timers.target

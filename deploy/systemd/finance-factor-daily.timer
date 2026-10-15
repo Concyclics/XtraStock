@@ -1,0 +1,10 @@
+[Unit]
+Description=Materialize daily factors after knowledge graph refresh
+
+[Timer]
+OnCalendar=*-*-* 22:30:00 Asia/Shanghai
+Persistent=true
+Unit=finance-factor-daily.service
+
+[Install]
+WantedBy=timers.target

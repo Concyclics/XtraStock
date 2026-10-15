@@ -1,0 +1,21 @@
+name: CI
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  offline-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - name: Install workspace
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install -c config/development.lock -e '.[analytics,gateway,dev]' -e packages/mmclaw
+      - run: make scan lint test doctor deploy-plan
+        env:
+          FINAGENT_TEST_DB: '0'

@@ -1,0 +1,26 @@
+[Unit]
+Description=Finance Agent V3 persistent pipeline controller
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Environment=PATH=@REPO@/services/model_gateway/bin:@REPO@/.venv/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=TZ=Asia/Shanghai
+Type=simple
+WorkingDirectory=@APP@
+Environment=PYTHONUNBUFFERED=1
+Environment=FINANCE_V3_CONTROLLER_MODE=active
+Environment=FINANCE_V3_PUBLISH=1
+EnvironmentFile=-@REPO@/.env
+ExecStart=@REPO@/.venv/bin/python scripts/pipeline/finance_pipeline_controller.py
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+
+Environment=FINANCE_DAILY_DELIVERY=file
+Environment=FINANCE_CONTROLLER_MAX_ATTEMPTS=2
+
+[Install]
+WantedBy=default.target

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run finance analytics and knowledge graph refresh after daily reports
+
+[Timer]
+OnCalendar=*-*-* 19:30:00 Asia/Shanghai
+Persistent=true
+Unit=finance-analytics-daily.service
+
+[Install]
+WantedBy=timers.target

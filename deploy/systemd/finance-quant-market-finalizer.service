@@ -1,0 +1,16 @@
+[Unit]
+Description=FinAgent recent market repair and research contract rebuild
+After=network-online.target
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Type=simple
+WorkingDirectory=@APP@
+ExecStart=@REPO@/.venv/bin/python -u scripts/pipeline/finalize_quant_market_repair.py --state-dir @APP@/logs/quant_market_finalizer_20261013_v6 --reuse-completed-from @APP@/logs/quant_market_finalizer_20261013_v5/checkpoint.json --execute
+Nice=10
+CPUQuota=100%
+UMask=0077
+KillMode=mixed
+TimeoutStopSec=90
+Restart=no

@@ -1,0 +1,10 @@
+[Unit]
+Description=Refresh recent finance documents in Meilisearch daily
+
+[Timer]
+OnCalendar=*-*-* 03:40:00 Asia/Shanghai
+Persistent=true
+Unit=finance-meili-recent.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,24 @@
+[Unit]
+Description=FinAgent continuous local embedding catch-up with cross-document batches
+After=network-online.target finagent-api-gateway.service
+Wants=network-online.target finagent-api-gateway.service
+StartLimitIntervalSec=10min
+StartLimitBurst=3
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Type=simple
+WorkingDirectory=@APP@
+Environment=TZ=Asia/Shanghai
+Environment=PYTHONUNBUFFERED=1
+UMask=0077
+Nice=10
+CPUQuota=200%
+TimeoutStopSec=5min
+KillMode=mixed
+Restart=on-failure
+RestartSec=60
+ExecStartPre=/usr/bin/systemctl --user stop finance-document-embedding.timer
+ExecStart=@REPO@/.venv/bin/python -u scripts/search/batch_document_embeddings.py --state-dir @APP@/logs/embedding_catchup --documents-per-batch 64 --batch-size 128 --chunk-budget 1024
+ExecStopPost=/usr/bin/systemctl --user start finance-document-embedding.timer

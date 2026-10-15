@@ -1,0 +1,14 @@
+[Unit]
+Description=Build semantic embeddings for changed finance documents
+
+[Timer]
+# Keep CPU-heavy historical backfill away from market, report, and analytics windows.
+OnCalendar=Mon..Fri *-*-* 00..10:00:00 Asia/Shanghai
+OnCalendar=Mon..Fri *-*-* 21..23:00:00 Asia/Shanghai
+OnCalendar=Sat,Sun *-*-* *:00:00 Asia/Shanghai
+Persistent=true
+RandomizedDelaySec=90
+Unit=finance-document-embedding.service
+
+[Install]
+WantedBy=timers.target

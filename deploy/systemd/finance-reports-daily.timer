@@ -1,0 +1,10 @@
+[Unit]
+Description=Run daily Eastmoney research reports import
+
+[Timer]
+OnCalendar=*-*-* 18:00:00 Asia/Shanghai
+Persistent=true
+Unit=finance-reports-daily.service
+
+[Install]
+WantedBy=timers.target

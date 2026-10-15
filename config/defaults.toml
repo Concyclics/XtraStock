@@ -1,0 +1,53 @@
+# Safe development defaults. Private endpoints and credentials belong in local.toml/.env.
+[project]
+timezone = "Asia/Shanghai"
+
+[paths]
+app = "apps/finagent"
+state = ".local/state"
+workspaces = ".local/workspaces"
+research = ".local/research"
+models = ".local/models"
+
+[database]
+host = "localhost"
+port = 5432
+name = "finance_corpus"
+admin_user = "finance_admin"
+app_user = "finance_app"
+reader_user = "finance_ai_reader"
+sslmode = "prefer"
+
+[api]
+base_url = "https://api.example.invalid/v1"
+model = "gpt-6-luna"
+
+[daily]
+model = "gpt-6-astra"
+reasoning_effort = "high"
+
+[embedding]
+provider = "openai"
+model = "Qwen/Qwen3-Embedding-0.6B"
+dimensions = 1024
+base_url = "http://localhost:8082/v1"
+key_env = "FINAGENT_GATEWAY_KEY"
+
+[ocr]
+base_url = "http://localhost:8082/v1"
+model = "deepseek-ai/DeepSeek-OCR-2"
+key_env = "FINAGENT_GATEWAY_KEY"
+
+[gateway]
+ocr_backend_url = "http://localhost:8083"
+embedding_backend_url = "http://localhost:8084"
+idle_seconds = 120
+
+[search]
+url = "http://localhost:7700"
+index = "finance_recent_documents"
+
+[deployment]
+vllm_bin = "/usr/local/bin/vllm"
+ocr_gpu = "0"
+embedding_gpu = "0"

@@ -1,0 +1,17 @@
+[Unit]
+Description=Finance weekly walk-forward factor research
+After=network-online.target finance-factor-daily.service
+Wants=network-online.target
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Environment=PATH=@REPO@/services/model_gateway/bin:@REPO@/.venv/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=TZ=Asia/Shanghai
+Type=oneshot
+WorkingDirectory=@APP@
+TimeoutStartSec=6h
+Nice=10
+ExecStart=@REPO@/.venv/bin/python scripts/analytics/run_weekly_factor_research.py
+
+ExecStartPost=@REPO@/.venv/bin/python scripts/analytics/train_forecast_baseline.py --horizon 5 --horizon 20 --horizon 60

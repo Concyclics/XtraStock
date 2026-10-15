@@ -1,0 +1,10 @@
+[Unit]
+Description=Run finance pipeline status report after nightly verification
+
+[Timer]
+OnCalendar=*-*-* 23:55:00 Asia/Shanghai
+Persistent=false
+Unit=finance-status-report.service
+
+[Install]
+WantedBy=timers.target

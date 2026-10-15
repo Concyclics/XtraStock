@@ -1,0 +1,7 @@
+requests>=2.31
+curl_cffi>=0.7
+pandas>=2.0
+pyarrow>=14.0
+tqdm>=4.65
+beautifulsoup4>=4.12
+psycopg[binary]>=3.1

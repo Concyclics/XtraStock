@@ -1,0 +1,14 @@
+[Unit]
+Description=Finance agent deterministic quality gate
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Type=oneshot
+WorkingDirectory=@APP@
+EnvironmentFile=-@REPO@/.env
+TimeoutStartSec=20m
+Nice=10
+ExecStart=@REPO@/.venv/bin/python scripts/agent/run_quality_gate.py

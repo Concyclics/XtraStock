@@ -1,0 +1,10 @@
+[Unit]
+Description=Run production analytics after daily report ingestion
+
+[Timer]
+OnCalendar=*-*-* 20:05:00 Asia/Shanghai
+Persistent=true
+Unit=finance-analytics-core.service
+
+[Install]
+WantedBy=timers.target

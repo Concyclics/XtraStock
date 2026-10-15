@@ -1,0 +1,12 @@
+[Unit]
+Description=Resume bounded official filing body batches
+
+[Timer]
+OnBootSec=5m
+OnUnitInactiveSec=2m
+AccuracySec=30s
+Persistent=true
+Unit=finance-cninfo-bodies.service
+
+[Install]
+WantedBy=timers.target

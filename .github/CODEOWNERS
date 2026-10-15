@@ -1,0 +1,5 @@
+# Add team handles here as collaborators join. Defaults to repository owner.
+* @Concyclics
+/database/ @Concyclics
+/src/xtrastock/ @Concyclics
+/deploy/ @Concyclics

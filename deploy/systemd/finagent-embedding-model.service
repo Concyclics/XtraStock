@@ -1,0 +1,20 @@
+[Unit]
+Description=FinAgent local Qwen3 embedding model
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Type=simple
+WorkingDirectory=@REPO@/services/model_gateway
+UMask=0077
+Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=CUDA_VISIBLE_DEVICES=@EMBEDDING_GPU@
+Environment=HF_HUB_OFFLINE=1
+Environment=TOKENIZERS_PARALLELISM=false
+Environment=VLLM_USE_FLASHINFER_SAMPLER=0
+ExecStart=@VLLM_BIN@ serve @MODELS@/Qwen3-Embedding-0.6B --runner pooling --convert embed --hf-overrides '{"is_matryoshka": true}' --served-model-name Qwen3-Embedding-0.6B --host 127.0.0.1 --port 8084 --gpu-memory-utilization 0.2 --max-model-len 8192 --max-num-seqs 16 --max-num-batched-tokens 8192 --enforce-eager
+Restart=no
+TimeoutStopSec=90

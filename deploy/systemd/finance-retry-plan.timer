@@ -1,0 +1,10 @@
+[Unit]
+Description=Run pending finance retry plan before daily news crawl
+
+[Timer]
+OnCalendar=*-*-* 08:20:00 Asia/Shanghai
+Persistent=true
+Unit=finance-retry-plan.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,18 @@
+[Unit]
+Description=Finance pipeline - nightly verification and retry-plan generation
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=30min
+StartLimitBurst=3
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Environment=PATH=@REPO@/services/model_gateway/bin:@REPO@/.venv/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+Environment=TZ=Asia/Shanghai
+Type=oneshot
+WorkingDirectory=@APP@
+TimeoutStartSec=20min
+ExecStart=@REPO@/.venv/bin/python scripts/pipeline/nightly_verify.py
+Restart=on-failure
+RestartSec=5min

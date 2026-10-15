@@ -1,0 +1,23 @@
+[Unit]
+Description=FinAgent bounded resumable historical market gap repair
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=7200
+StartLimitBurst=3
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Type=simple
+WorkingDirectory=@APP@
+ExecStart=@REPO@/.venv/bin/python -u scripts/pipeline/market_gap_repair.py --state-dir @APP@/logs/market_gap_repair_20261013 --workers 4 --max-seconds 7200 --datalen 100 --max-attempts 3
+Nice=10
+CPUQuota=100%
+UMask=0077
+KillMode=mixed
+TimeoutStopSec=90
+Restart=on-failure
+RestartSec=300
+
+[Install]
+WantedBy=default.target

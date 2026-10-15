@@ -1,0 +1,16 @@
+[Unit]
+Description=Finance official filing body ingestion and backfill
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Type=oneshot
+WorkingDirectory=@APP@
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+CPUQuota=150%
+TimeoutStartSec=25m
+ExecStart=@REPO@/.venv/bin/python -u scripts/pipeline/sync_cninfo_document_bodies.py --limit 2000 --workers 4 --max-seconds 1200

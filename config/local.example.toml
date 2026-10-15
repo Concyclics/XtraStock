@@ -1,0 +1,14 @@
+# Copy to config/local.toml (ignored). Change only the values you need.
+[database]
+host = "localhost"
+port = 5432
+sslmode = "prefer"
+
+[api]
+base_url = "https://api.example.invalid/v1"
+
+[paths]
+state = ".local/state"
+workspaces = ".local/workspaces"
+research = ".local/research"
+models = ".local/models"

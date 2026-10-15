@@ -1,0 +1,25 @@
+{
+  "exploration_capacity": 300,
+  "watch_capacity": 80,
+  "core_capacity": 20,
+  "weekly_replacements": 4,
+  "replacement_margin": 5.0,
+  "industry_core_limit": 4,
+  "minimum_hold_days": 7,
+  "cooling_days": 30,
+  "filing_lookback_days": 14,
+  "filings_per_company": 3,
+  "filing_limit": 6000,
+  "learning_stock_limit": 20,
+  "mining": {
+    "mode": "reconstruction",
+    "min_train_sessions": 126,
+    "test_sessions": 100,
+    "folds": 3,
+    "history_days": 1500,
+    "max_stocks": 40,
+    "min_assets_per_date": 8,
+    "max_candidates": 16,
+    "horizons": [5, 20]
+  }
+}

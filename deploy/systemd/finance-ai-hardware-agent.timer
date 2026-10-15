@@ -1,0 +1,10 @@
+[Unit]
+Description=Run AI hardware Codex daily research agent before market open
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 08:50:00 Asia/Shanghai
+Persistent=false
+Unit=finance-ai-hardware-agent.service
+
+[Install]
+WantedBy=timers.target

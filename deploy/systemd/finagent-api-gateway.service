@@ -1,0 +1,23 @@
+[Unit]
+Description=FinAgent private AI gateway with on-demand GPU models
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Environment=XTRASTOCK_CONFIG=@REPO@/config/local.toml
+Environment=XTRASTOCK_ENV_FILE=@REPO@/.env
+Type=simple
+WorkingDirectory=@REPO@/services/model_gateway
+UMask=0077
+Environment=PYTHONUNBUFFERED=1
+Environment=FINAGENT_MODEL_IDLE_SECONDS=120
+Environment=FINAGENT_MODEL_START_TIMEOUT_SECONDS=300
+ExecStart=@REPO@/.venv/bin/uvicorn api_gateway:app --host 127.0.0.1 --port 8082 --no-access-log
+# Also clean up owned GPU services if the gateway crashes before its lifespan cleanup.
+ExecStopPost=/usr/bin/systemctl --user stop finagent-ocr-model.service finagent-embedding-model.service
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=120
+
+[Install]
+WantedBy=default.target
