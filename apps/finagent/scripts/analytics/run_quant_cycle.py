@@ -242,7 +242,8 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
         'methodology_notes': [spec['accounting'], spec['scope'], 'Cost is basis points on each side.',
                               f"{len(spec['models']) * len(allocations)} fixed candidates plus two benchmarks; all results retained.",
                               'Numerical target pass does not resolve execution/source quality.'],
-        'training_status_by_year': {str(y): 'purged_previous_years_discovery_only' for y in spec['test_years']},
+        'training_status_by_year': spec.get('training_status_by_year',
+            {str(y): 'purged_previous_years_discovery_only' for y in spec['test_years']}),
     })
     dump(out / 'COMPLETE.json', {
         'status': 'research_cycle_complete', 'started_at': started,

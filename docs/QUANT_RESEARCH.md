@@ -126,6 +126,62 @@ reference; model accounts retain round-lot constraints. More holdings, lower
 capital or a more complex risk estimator need measured benefits under the same
 costs; none implies better returns by itself.
 
+### Rolling model updates within the recent window
+
+`config/research/adaptation.json` declares quarterly tree-blend refits, monthly
+ridge refits, and unchanged annual controls. Each refit uses at most the preceding
+three years within the five-year primary window. The optional 252-session
+half-life changes training-loss weights; every date first receives equal total
+influence regardless of its number of eligible stocks. Validation retains equal
+date weights, and ridge transforms use only training observations.
+
+The outer training set excludes labels that expire on or after the first test
+open. Tree early stopping uses the last 63 eligible historical dates with a
+second label purge before that validation block. A new model owns the preceding
+close's signal for its first open. Consecutive prediction blocks neither overlap
+nor leave gaps. Fold checkpoints retain parameters, model hashes, training
+boundaries and prediction hashes; incomplete or altered checkpoints require
+review rather than silent reuse.
+
+```bash
+python apps/finagent/scripts/analytics/run_adaptation_cycle.py \
+  --dataset .local/research/market \
+  --forecasts .local/research/forecast-features.npz \
+  --reference-experiment .local/research/tree-cycle \
+  --study-config config/research/adaptation.json \
+  --output .local/research/adaptation
+python apps/finagent/scripts/analytics/verify_adaptation_cycle.py \
+  --experiment .local/research/adaptation \
+  --dataset .local/research/market \
+  --reference-experiment .local/research/tree-cycle \
+  --report .local/research/adaptation-verification.json
+python apps/finagent/scripts/analytics/run_portfolio_cycle.py \
+  --dataset .local/research/market \
+  --reference-experiment .local/research/adaptation \
+  --study-config config/research/adaptation.json \
+  --capital 1000000 \
+  --output .local/research/adaptation-1000000
+python apps/finagent/scripts/analytics/verify_quant_cycle.py \
+  --experiment .local/research/adaptation-1000000 \
+  --report .local/research/adaptation-1000000-verification.json
+```
+
+Repeat the portfolio stage at the second declared capital. The default study has
+six scores, three allocations, three membership scopes and two cost levels:
+120 replays per capital, including benchmarks. Retain all alternatives. Compare
+each fresh model to its same-family annual control, and recency weighting to its
+uniform-weight rolling counterpart. The rolling predictor verifier independently
+reconstructs training-date ownership and maturity. Its daily rank correlations
+use raw realized returns and disclose missing matured labels; overlapping labels
+make these diagnostics different from executed portfolio returns.
+
+This is a rolling-refit and loss-weighting experiment motivated by distribution
+change. It does not implement the data/model meta-adapters in
+[DoubleAdapt](https://arxiv.org/abs/2306.09862). The
+[author implementation](https://github.com/SJTU-DMTai/DoubleAdapt) also discusses
+label maturity and limitations of its online update interval. Historical
+comparisons already inspected during research remain exploratory.
+
 Opening orders use only prior-session liquidity and an observed open. The
 reported same-day capacity breaches are unresolved execution errors, not proven
 auction fills. Current security-master flags, historical trading states and

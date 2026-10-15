@@ -504,6 +504,42 @@
         "时点数据",
         "近五年"
       ]
+    },
+    {
+      "method_key": "rolling_refit_and_recency",
+      "title": "市场规律变化下的滚动重训与近期样本权重",
+      "source": {
+        "title": "DoubleAdapt: A Meta-learning Approach to Incremental Learning for Stock Trend Forecasting",
+        "authors": ["Lifan Zhao", "Shuming Kong", "Yanyan Shen"],
+        "year": 2023,
+        "url": "https://arxiv.org/abs/2306.09862",
+        "scope": "股票预测中的分布变化与元学习；本项目先测试滚动重训对照，未复现论文的双适配器"
+      },
+      "implementation_reference": "https://github.com/SJTU-DMTai/DoubleAdapt",
+      "finding": "原研究通过数据适配器和模型适配器处理新增数据与未来市场之间的分布差异；作者实现另提示滚动重训与增量更新可以组合，更新时必须排除尚未成熟的标签。",
+      "adaptation": "固定近五年主窗口和三年滚动训练范围，对照年度、季度树模型与月度线性模型；近期加权只改变训练损失，权重按交易日数衰减，验证集仍按日期等权。所有方案先固定后评估。",
+      "implementation_status": "purged_rolling_refit_and_recency_comparison_implemented_research_only",
+      "required_data": [
+        "按实际交易日对齐的量价及估值、EPS 特征",
+        "已成熟的下一开盘后 20 交易日收益标签",
+        "按时点冻结的预测输入和证券范围",
+        "带交易成本的持仓与现金账本"
+      ],
+      "tests": [
+        "每个训练期与内层验证之间清除重叠标签",
+        "相同训练数据时首期结果应与年度基线一致",
+        "下一开盘的预测归属无空档或重复",
+        "检查点、模型及输入变更会阻止静默续跑",
+        "同资金、成本和持仓方式比较全部重训频率",
+        "预测相关性使用原始收益且不冒充交易收益"
+      ],
+      "limitations": [
+        "该实现是滚动重训及近期加权对照，不是 DoubleAdapt 元学习复现",
+        "更新更频繁或提高近期权重可能降低稳定性",
+        "已反复查看的历史样本不能当作新留出集",
+        "算术核验通过不能消除原始数据、成交容量或选择偏差"
+      ],
+      "tags": ["滚动重训", "近期权重", "概念漂移", "月度", "季度", "近五年", "预测"]
     }
   ]
 }

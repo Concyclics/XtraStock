@@ -1,0 +1,20 @@
+{
+  "version": "rolling-adaptation-v1",
+  "training_years": 3,
+  "validation_sessions": 63,
+  "capital_levels": [1000000, 10000000],
+  "models": ["annual_tree_blend", "annual_ridge_extended", "quarterly_tree_blend", "quarterly_tree_recent252", "monthly_ridge_extended", "monthly_ridge_recent252"],
+  "variants": {
+    "quarterly_tree_blend": {"family": "tree_blend", "cadence": "quarterly", "half_life_sessions": null},
+    "quarterly_tree_recent252": {"family": "tree_blend", "cadence": "quarterly", "half_life_sessions": 252},
+    "monthly_ridge_extended": {"family": "ridge_extended", "cadence": "monthly", "half_life_sessions": null},
+    "monthly_ridge_recent252": {"family": "ridge_extended", "cadence": "monthly", "half_life_sessions": 252}
+  },
+  "cohorts": ["all", "discovery", "cross_section_reserve"],
+  "allocations": {
+    "k100_equal": {"size": 100},
+    "k100_portfolio_risk18": {"size": 100, "weighting": "inverse_volatility", "target_vol": 0.18, "regime": "lagged_market_trend", "exposure_floor": 0.35, "risk_rebalance": 5, "vol_estimator": "portfolio"},
+    "k100_portfolio_risk24": {"size": 100, "weighting": "inverse_volatility", "target_vol": 0.24, "regime": "lagged_market_trend", "exposure_floor": 0.35, "risk_rebalance": 5, "vol_estimator": "portfolio"}
+  },
+  "selection": "Predeclare every cadence, training-loss weight and risk allocation. No return-based expansion or automatic promotion."
+}

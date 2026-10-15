@@ -120,7 +120,21 @@ def labels(data, features, horizon=20):
     return outcome, outcome - mean[:, None]
 
 
-def fit_ridge(x, y, signal_indices, alpha=1000.0):
+def observation_weights(signal_indices, half_life_sessions=None):
+    """Equal influence per signal day, optionally decayed in session units."""
+    indices = np.asarray(signal_indices)
+    if indices.ndim != 1 or not len(indices) or not np.isfinite(indices).all():
+        raise ValueError('invalid signal indices for training weights')
+    _, inverse, counts = np.unique(indices, return_inverse=True, return_counts=True)
+    weights = 1. / counts[inverse]
+    if half_life_sessions is not None:
+        if not np.isfinite(half_life_sessions) or half_life_sessions <= 0:
+            raise ValueError('training half-life must be positive and finite')
+        weights *= np.exp2((indices - indices.max()) / float(half_life_sessions))
+    return weights / weights.mean()
+
+
+def fit_ridge(x, y, signal_indices, alpha=1000.0, half_life_sessions=None):
     x = np.asarray(x, float)
     y = np.asarray(y, float)
     if len(x) < 1000 or len(np.unique(signal_indices)) < 126:
@@ -135,15 +149,13 @@ def fit_ridge(x, y, signal_indices, alpha=1000.0):
     scale = np.where(scale > 1e-8, scale, 1.)
     transformed = np.clip((filled - mean) / scale, -8, 8)
     design = np.column_stack([np.ones(len(x)), transformed])
-    _, inverse, counts = np.unique(signal_indices, return_inverse=True, return_counts=True)
-    weight = 1. / counts[inverse]
-    weight /= weight.mean()
+    weight = observation_weights(signal_indices, half_life_sessions)
     penalty = np.eye(design.shape[1]) * alpha
     penalty[0, 0] = 0.
     coefficient = np.linalg.solve(design.T @ (weight[:, None] * design) + penalty,
                                   design.T @ (weight * np.clip(y, -.5, .5)))
     return {'median': medians, 'mean': mean, 'scale': scale, 'coefficient': coefficient,
-            'training_rows': len(y), 'training_dates': len(counts), 'alpha': alpha}
+            'training_rows': len(y), 'training_dates': len(np.unique(signal_indices)), 'alpha': alpha}
 
 
 def predict(model, x):

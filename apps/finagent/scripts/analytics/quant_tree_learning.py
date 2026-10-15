@@ -10,7 +10,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from quant_learning import fit_ridge, predict, labels
+from quant_learning import fit_ridge, predict, labels, observation_weights
 from strategy_research import lag, rolling, rank
 
 MODEL_NAMES = ('ridge_extended', 'tree_return', 'tree_rank', 'tree_blend')
@@ -130,7 +130,7 @@ def day_weights(indices):
     return weights / weights.mean()
 
 
-def fit_tree(matrix, target, train, inner, validation, names, model_path=None):
+def fit_tree(matrix, target, train, inner, validation, names, model_path=None, half_life_sessions=None):
     # Optional research dependency; importing the Agent never starts LightGBM.
     import lightgbm as lgb
     ii, ij = np.where(inner)
@@ -139,12 +139,12 @@ def fit_tree(matrix, target, train, inner, validation, names, model_path=None):
     if len(ii) < 1000 or len(vi) < 1000 or not np.all(np.isfinite(target[ti, tj])):
         raise ValueError('insufficient or non-finite tree training labels')
     params = dict(TREE_PARAMS)
-    dataset = lgb.Dataset(matrix[ii, ij], label=target[ii, ij], weight=day_weights(ii), feature_name=names)
+    dataset = lgb.Dataset(matrix[ii, ij], label=target[ii, ij], weight=observation_weights(ii, half_life_sessions), feature_name=names)
     validation_data = lgb.Dataset(matrix[vi, vj], label=target[vi, vj], weight=day_weights(vi), reference=dataset)
     selected = lgb.train(params, dataset, num_boost_round=400, valid_sets=[validation_data],
                          callbacks=[lgb.early_stopping(40, verbose=False)])
     iterations = selected.best_iteration
-    complete = lgb.Dataset(matrix[ti, tj], label=target[ti, tj], weight=day_weights(ti), feature_name=names)
+    complete = lgb.Dataset(matrix[ti, tj], label=target[ti, tj], weight=observation_weights(ti, half_life_sessions), feature_name=names)
     model = lgb.train(params, complete, num_boost_round=iterations)
     if model_path is not None:
         model.save_model(str(model_path))

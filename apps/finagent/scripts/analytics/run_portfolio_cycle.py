@@ -43,7 +43,7 @@ def protocol(dataset, reference, capital, members, study_path):
         cohort_members_sha256=checksum(members), reference_protocol_sha256=checksum(original),
         reference_predictions_sha256=receipt['sha256'], reference_training_folds_sha256=checksum(reference / 'TRAINING_FOLDS.json'),
         model_refitted=False,
-        selection='Two frozen scores; six fixed constructions; all cohorts/costs reported. No return-based selection or automatic promotion.',
+        selection=f"{len(study['models'])} frozen scores; {len(study['allocations'])} fixed constructions; all cohorts/costs reported. No return-based selection or automatic promotion.",
         scope='Previously inspected historical reconstruction; all-universe is an operational projection, not an untouched holdout.',
         benchmark_note='Equal-weight benchmark uses fractional shares as a reference; model portfolios retain round-lot constraints.',
         code={name: checksum(code/name) for name in ('run_portfolio_cycle.py', 'run_quant_cycle.py',
