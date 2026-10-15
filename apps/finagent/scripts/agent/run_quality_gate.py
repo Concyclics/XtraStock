@@ -92,6 +92,9 @@ def main() -> int:
             "stdout_tail": proc.stdout[-3000:], "stderr_tail": proc.stderr[-3000:],
             "attempt_count": len(attempts), "attempts": attempts,
         })
+        if proc.returncode and args.unit_only:
+            print('FAILED CHECK: ' + ' '.join(command), flush=True)
+            print(proc.stdout[-3000:] + proc.stderr[-3000:], flush=True)
     now = dt.datetime.now(dt.timezone(dt.timedelta(hours=8)))
     report = {
         "generated_at": now.isoformat(), "passed": all(row["passed"] for row in rows),
