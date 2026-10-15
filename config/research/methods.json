@@ -325,6 +325,96 @@
         "仓位",
         "回撤"
       ]
+    },
+    {
+      "method_key": "recent_incremental_adaptation",
+      "title": "近五年窗口内的增量学习与分布变化适应",
+      "source": {
+        "title": "DoubleAdapt: A Meta-learning Approach to Incremental Learning for Stock Trend Forecasting",
+        "authors": [
+          "Lifan Zhao",
+          "Shuming Kong",
+          "Yanyan Shen"
+        ],
+        "year": 2023,
+        "url": "https://arxiv.org/abs/2306.09862",
+        "scope": "数据与模型双适配的增量股票预测研究；本项目尚未复现其收益"
+      },
+      "finding": "原研究用数据适配器和模型适配器处理市场分布变化，收到成熟标签后更新下一阶段模型。单纯追随最新样本仍可能受到分布突变影响。",
+      "adaptation": "只在近五年主窗口内训练；先比较月度重新训练和固定近期权重，再考虑双适配器。月度更新或时间加权属于本项目简化对照，不应称为 DoubleAdapt 复现。",
+      "implementation_status": "literature_candidate_not_implemented",
+      "required_data": [
+        "真实交易日历与信号时点",
+        "已经成熟的前瞻收益标签",
+        "按日期冻结的特征和预测",
+        "训练与验证的时间隔离",
+        "统一费用和持仓约束"
+      ],
+      "tests": [
+        "每次更新排除尚未成熟的20日标签",
+        "改变未来数据不改变历史预测",
+        "与年度训练在同一窗口、成本和预算比较",
+        "保留全部更新时间和失败结果",
+        "报告跨年收益、胜率、回撤及换手"
+      ],
+      "limitations": [
+        "模型适配不能替代源数据和证券生命周期核验",
+        "论文的标签周期和组合设定不等同本项目20日收益任务",
+        "近期数据加权或更频繁更新未必提高扣费收益"
+      ],
+      "tags": [
+        "近期数据",
+        "增量学习",
+        "分布变化",
+        "滚动训练",
+        "预测",
+        "近五年"
+      ]
+    },
+    {
+      "method_key": "temporal_pattern_routing",
+      "title": "多种市场模式的预测器与动态路由",
+      "source": {
+        "title": "Learning Multiple Stock Trading Patterns with Temporal Routing Adaptor and Optimal Transport",
+        "authors": [
+          "Hengxu Lin",
+          "Dong Zhou",
+          "Weiqing Liu",
+          "Jiang Bian"
+        ],
+        "year": 2021,
+        "url": "https://arxiv.org/abs/2106.12950",
+        "scope": "股票截面排序中的多模式预测与路由；不是供应链关系图模型"
+      },
+      "finding": "原研究通过多个预测器和路由器分别建模交易模式，并用最优传输辅助学习样本分配，检验其对股票排序的改善。",
+      "adaptation": "保留单一价格模型作基线，候选模式仅使用信号时点可见的市场趋势、波动和流动性；先检验固定专家融合，再决定是否实现可学习路由。",
+      "implementation_status": "literature_candidate_not_implemented",
+      "required_data": [
+        "同一股票和日期上的多个固定模型预测",
+        "滞后市场趋势与波动特征",
+        "成熟后的逐期预测误差",
+        "训练/验证/测试时间边界"
+      ],
+      "tests": [
+        "路由器不能使用当前未成熟标签或未来误差",
+        "与相同专家的固定融合比较",
+        "检验各模式样本量和跨年稳定性",
+        "限制搜索数量并保留失败配置",
+        "同成本同仓位比较收益及回撤"
+      ],
+      "limitations": [
+        "公开实现与论文原配置应分别核对，不混用指标",
+        "模式数增加会消耗有限的近五年有效样本",
+        "相关性和排序提升不等于实际交易收益提升"
+      ],
+      "tags": [
+        "多模式",
+        "市场状态",
+        "动态路由",
+        "预测",
+        "模型融合",
+        "Qlib"
+      ]
     }
   ]
 }
