@@ -62,6 +62,10 @@ The current runners evaluate fixed 2022–2025 folds on supplied immutable panel
 They do not silently extend those results to 2026. Input dates, securities and
 forecast dimensions must agree. A new period or policy requires a new protocol
 and output directory; completed outputs cannot be resumed or overwritten.
+When a panel manifest declares `primary_since`, older rows may initialize rolling
+features only. Both linear and tree learners exclude those rows from supervised
+training, and the execution simulator rejects evaluation before that boundary.
+An early fold with insufficient recent training history fails explicitly.
 
 The linear cycle tests price, interaction and forecast-availability features.
 The tree cycle uses 72 features when valuation/EPS inputs are supplied, two tree

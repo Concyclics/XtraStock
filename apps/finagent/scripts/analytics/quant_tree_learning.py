@@ -107,11 +107,12 @@ def daily_rank_targets(target, discovery):
     return rank(target, np.isfinite(target) & discovery[None, :]) - .5
 
 
-def purged_splits(dates, train_mask, test_year, horizon=20, validation_sessions=63):
+def purged_splits(dates, train_mask, test_year, horizon=20, validation_sessions=63, primary_since=None):
     """Both validation and test are separated from training label expiries."""
-    first_test = int(np.searchsorted(dates, f'{test_year}-01-01'))
+    from quant_learning import purged_training_dates
+    permitted, first_test = purged_training_dates(dates, test_year, horizon, primary_since)
     positions = np.arange(len(dates))[:, None]
-    train = train_mask & (dates[:, None] >= f'{test_year - 3}-01-01') & (positions + horizon < first_test)
+    train = train_mask & permitted[:, None]
     available_days = np.flatnonzero(train.any(axis=1))
     if len(available_days) < 126 + validation_sessions + horizon:
         raise ValueError('insufficient training and purged validation dates')
@@ -163,7 +164,8 @@ def walk_forward_trees(data, features, matrix, names, years, model_dir, horizon=
     folds = []
     for year in years:
         mask = features['eligible'] & discovery[None, :] & np.isfinite(relative)
-        train, inner, validation, first = purged_splits(dates, mask, year, horizon)
+        train, inner, validation, first = purged_splits(dates, mask, year, horizon,
+                                                       primary_since=data.get('primary_since'))
         test = features['eligible'] & (positions >= first - 1) & (dates[:, None] < f'{year + 1}-01-01')
         ti, tj = np.where(train)
         pi, pj = np.where(test)

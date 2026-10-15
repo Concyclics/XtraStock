@@ -6,7 +6,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts/analytics'))
 from strategy_research import Policy, backtest, capped_weights, buffered_selection, metrics, prepare_features
-from quant_learning import labels, research_features, fit_ridge, predict, block_bootstrap_cagr
+from quant_learning import labels, research_features, fit_ridge, predict, block_bootstrap_cagr, purged_training_dates
 try:
     from tests.test_strategy_research import constant_case, toy
 except ModuleNotFoundError:
@@ -14,6 +14,14 @@ except ModuleNotFoundError:
 
 
 class CausalExecutionTests(unittest.TestCase):
+    def test_warmup_cannot_enter_scored_returns(self):
+        d, f = constant_case()
+        d['primary_since'] = str(d['dates'][3])
+        with self.assertRaisesRegex(ValueError, 'warm-up'):
+            backtest(d, f, Policy('medium_momentum'), str(d['dates'][2]), str(d['dates'][5]))
+        result = backtest(d, f, Policy('medium_momentum'), str(d['dates'][3]), str(d['dates'][5]))
+        self.assertEqual(result['dates'][0], d['primary_since'])
+
     def test_close_range_volume_cannot_change_same_open_order(self):
         d, f = constant_case()
         p = Policy('medium_momentum', initial_cash=10000, cost_bps=0)
@@ -67,6 +75,17 @@ class CausalExecutionTests(unittest.TestCase):
 
 
 class LearningTests(unittest.TestCase):
+    def test_feature_warmup_does_not_become_training_labels(self):
+        dates = np.arange(np.datetime64('2020-01-01'), np.datetime64('2023-02-01')).astype(str)
+        permitted, first = purged_training_dates(dates, 2023, 20, '2021-10-15')
+        self.assertEqual(dates[np.flatnonzero(permitted)[0]], '2021-10-15')
+        self.assertTrue((np.flatnonzero(permitted) + 20 < first).all())
+        self.assertFalse(permitted[dates < '2021-10-15'].any())
+
+    def test_absent_test_year_does_not_use_the_next_year(self):
+        with self.assertRaisesRegex(ValueError, 'no sessions'):
+            purged_training_dates(np.array(['2022-12-30', '2024-01-02']), 2023)
+
     def test_empty_training_rejected(self):
         with self.assertRaises(ValueError):
             fit_ridge(np.zeros((100, 2)), np.zeros(100), np.arange(100))

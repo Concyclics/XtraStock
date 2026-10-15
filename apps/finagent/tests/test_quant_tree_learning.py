@@ -68,6 +68,16 @@ class TreeContractTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             purged_splits(data['dates'], np.ones_like(data['close'], bool), 2020)
 
+    def test_tree_training_and_validation_exclude_warmup(self):
+        data = panel()
+        train, inner, validation, first = purged_splits(
+            data['dates'], np.ones_like(data['close'], bool), 2023, primary_since='2021-10-15')
+        before = data['dates'] < '2021-10-15'
+        self.assertFalse(train[before].any())
+        self.assertFalse(inner[before].any())
+        self.assertFalse(validation[before].any())
+        self.assertLess(np.flatnonzero(train.any(axis=1))[-1] + 20, first)
+
 
 if __name__ == '__main__':
     unittest.main()

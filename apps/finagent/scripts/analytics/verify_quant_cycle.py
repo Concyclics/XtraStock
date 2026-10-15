@@ -66,6 +66,8 @@ def verify(experiment):
                 raise ValueError('Yearly result differs from NAV')
         audit.append({'file': path.name, 'sha256': checksum(path), 'metrics_match': True})
     for fold in json.loads((experiment / 'TRAINING_FOLDS.json').read_text()):
+        if protocol.get('primary_since') and fold['train_signal_first'] < protocol['primary_since']:
+            raise ValueError('Training used feature warm-up rows outside the primary research window')
         if fold['train_label_last'] >= fold['test_first_open'] or fold['training_dates'] < 126:
             raise ValueError('Test label purge or training history invalid')
         if 'inner_train_label_last' in fold and (fold['inner_train_label_last'] >= fold['validation_signal_first']

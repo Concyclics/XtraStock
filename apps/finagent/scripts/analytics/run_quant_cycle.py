@@ -27,6 +27,7 @@ ALLOCATIONS = {
 
 def protocol(dataset, forecasts):
     code = Path(__file__).parent
+    dataset_manifest = json.loads((dataset / 'manifest.json').read_text())
     policy_path = code.parents[3] / 'config/research/policy.json'
     research_policy = json.loads(policy_path.read_text())
     if research_policy['training_lookback_years'] != 3:
@@ -35,6 +36,7 @@ def protocol(dataset, forecasts):
         'version': 'quant-cycle-v2',
         'research_policy': research_policy,
         'research_policy_sha256': checksum(policy_path),
+        'primary_since': dataset_manifest.get('primary_since'),
         'source': {name: checksum(dataset / name) for name in ('market.npz', 'manifest.json', 'assets.json', 'actions.json')},
         'forecast_sha256': checksum(forecasts),
         'code': {name: checksum(code / name) for name in

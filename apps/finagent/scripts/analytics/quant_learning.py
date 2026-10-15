@@ -119,6 +119,17 @@ def predict(model, x):
     return model['coefficient'][0] + transformed @ model['coefficient'][1:]
 
 
+def purged_training_dates(dates, test_year, horizon=20, primary_since=None):
+    """Respect the primary research window while retaining older feature inputs."""
+    if horizon < 1:
+        raise ValueError('label horizon must be positive')
+    first = int(np.searchsorted(dates, f'{test_year}-01-01'))
+    if first >= len(dates) or not str(dates[first]).startswith(str(test_year) + '-'):
+        raise ValueError('test year has no sessions')
+    lower = max(f'{test_year - 3}-01-01', primary_since or '')
+    return ((dates >= lower) & (np.arange(len(dates)) + horizon < first)), first
+
+
 def walk_forward(data, features, matrices, years, horizon=20, callback=None):
     dates = data['dates']
     _, target = labels(data, features, horizon)
@@ -128,11 +139,9 @@ def walk_forward(data, features, matrices, years, horizon=20, callback=None):
     outputs = {name: np.full_like(data['close'], np.nan) for name in MODEL_NAMES}
     folds = []
     for year in years:
-        first = int(np.searchsorted(dates, f'{year}-01-01'))
-        if first >= len(dates):
-            raise ValueError('test year has no sessions')
+        permitted, first = purged_training_dates(dates, year, horizon, data.get('primary_since'))
         train = (features['eligible'] & discovery & np.isfinite(target)
-                 & (dates[:, None] >= f'{year-3}-01-01') & (positions + horizon < first))
+                 & permitted[:, None])
         # First signal is the previous year's final close, for January's open.
         test_days = (positions >= first - 1) & (dates[:, None] < f'{year+1}-01-01')
         test = features['eligible'] & test_days

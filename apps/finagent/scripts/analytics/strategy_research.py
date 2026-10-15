@@ -81,6 +81,11 @@ def load_dataset(path, cohort='discovery', until=None):
         if a['asset_id'] in by_id and (until is None or a['ex_date']<=until):
             actions.append({**a,'column':by_id[a['asset_id']]})
     d.update(assets=meta,actions=actions,cohort_name=cohort)
+    manifest_path=path/'manifest.json'
+    if manifest_path.exists():
+        primary_since=json.loads(manifest_path.read_text()).get('primary_since')
+        if primary_since:
+            d['primary_since']=primary_since
     return d
 
 
@@ -210,6 +215,8 @@ def action_schedule(d):
 
 
 def backtest(d,f,policy,start,end,*,keep_trades=False):
+    if d.get('primary_since') and start<d['primary_since']:
+        raise ValueError('Feature warm-up rows cannot enter scored evaluation')
     if policy.family not in f['score'] or policy.rebalance not in (5,10,20,40,60):raise ValueError('unknown policy')
     if policy.signal_lag<1 or policy.cost_bps<0 or not 0<policy.participation<=.05:raise ValueError('invalid execution policy')
     if policy.regime not in ('none','lagged_market_trend'):raise ValueError('unknown market regime')
