@@ -1,0 +1,5 @@
+# Versions used for the recorded CPU research cycle. Optional, isolated extras.
+numpy==2.4.6
+pandas==2.3.3
+scipy==1.17.1
+lightgbm==4.7.0

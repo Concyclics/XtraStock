@@ -1762,7 +1762,7 @@ def run_v3_research_intelligence(root: str, spec: dict[str, Any]) -> None:
     with connect(root) as conn:
         conn.execute('SET TRANSACTION READ ONLY')
         state=load_intelligence(conn,cutoff,spec.get('as_of_date'),codes,
-            clamp_int(spec.get('limit'),10,1,20),str(spec.get('scope') or 'all'),spec.get('experiment_project'),spec.get('experiment_filters'),spec.get('experiment_offset',0))
+            clamp_int(spec.get('limit'),10,1,20),str(spec.get('scope') or 'all'),spec.get('experiment_project'),spec.get('experiment_filters'),spec.get('experiment_offset',0),spec.get('method_query'))
     rows=intelligence_rows(state)
     evidence=[v3_evidence(request_id,i+1,claim_type='model_signal' if row['component']=='research_scenario' else 'interpretation',
         entity_id=row.get('stock_code') or row.get('entity_key'),metric_id=row['component'],value=row,

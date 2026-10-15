@@ -10,6 +10,7 @@
   "api.openai.com",
   "api.search.brave.com",
   "api.tavily.com",
+  "arxiv.org",
   "auth.openai.com",
   "brave.com",
   "chatgpt.com",
@@ -28,6 +29,7 @@
   "google.serper.dev",
   "ilinkai.weixin.qq.com",
   "kuaixun.eastmoney.com",
+  "lightgbm.readthedocs.io",
   "mrdx.cn",
   "notion.so",
   "novac2c.cdn.weixin.qq.com",
@@ -48,8 +50,12 @@
   "stock.eastmoney.com",
   "tavily.com",
   "testapi.clawmeets.com",
+  "web.ifzq.gtimg.cn",
+  "www.aqr.com",
   "www.bse.cn",
   "www.cninfo.com.cn",
+  "www.davidhbailey.com",
   "www.gnu.org",
+  "www.nber.org",
   "www.sse.com.cn"
 ]

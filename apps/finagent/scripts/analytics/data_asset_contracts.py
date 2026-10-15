@@ -4,6 +4,7 @@ SQL and derived indexes are different grains; this catalog never certifies cover
 """
 
 DATASETS=[
+ ('research.quant_methods','量化方法与原始研究来源','sql','research.quant_method_versions','method_key + content version','原始论文结论、项目改编、数据前提和验收对照分别保存；外部研究不等于本项目已验证收益。',[]),
  ('research.reports_resolved','规范化证券身份的研报','sql','research.reports_resolved','document_id','分析按当前规范证券身份连接，原报告代码与身份实际可见时点保留；采集仍写原始research.reports。',['corpus.documents','market.lifecycle']),
  ('company.filings','官方公告元数据与正文入口','sql','company.filings','filing_id','公告目录记录不代表PDF、正文或OCR均完整；关联统一文档及附件。',['corpus.documents']),
  ('corpus.document_quality','正文质量与解析覆盖','sql','corpus.document_quality','document_id','原生正文、完整OCR、检索及向量是不同状态，不以任一成功推断全部完成。',['corpus.documents']),

@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-VERSION = 'balanced-strategy-research-v2'
+VERSION = 'balanced-strategy-research-v3'
 FAMILIES = ('medium_momentum','long_momentum','short_reversal','low_volatility',
             'trend_pullback','momentum_low_vol','reversal_low_vol','defensive_trend')
 
@@ -30,10 +30,42 @@ class Policy:
     signal_lag: int = 1
     round_lots: bool = True
     target_vol: float | None = None
+    weighting: str = 'equal'
+    max_weight: float = 1.0
+    holding_buffer: float = 1.0
+    exposure_floor: float = 0.0
+    risk_rebalance: int | None = None
 
     @property
     def name(self):
         return f'{self.family}-h{self.rebalance}-k{self.size}-{self.regime}' + (f'-v{self.target_vol}' if self.target_vol else '')
+
+
+def capped_weights(raw, cap):
+    """Water-fill positive weights; infeasible concentration limits leave cash."""
+    raw=np.asarray(raw,float)
+    if not 0<cap<=1 or np.any(~np.isfinite(raw)) or np.any(raw<=0):
+        raise ValueError('invalid allocation weights')
+    weights=np.zeros_like(raw);active=np.ones(len(raw),bool);budget=1.
+    while active.any() and budget>1e-12:
+        proposal=raw[active]/raw[active].sum()*budget
+        hit=proposal>cap
+        indices=np.flatnonzero(active)
+        if not hit.any():weights[indices]=proposal;break
+        capped=indices[hit];weights[capped]=cap;active[capped]=False
+        budget=1.-weights.sum()
+    return weights
+
+
+def buffered_selection(scores, quantities, size, buffer=1.0):
+    """Retain incumbents within a fixed rank band, then fill with top candidates."""
+    candidates=np.flatnonzero(np.isfinite(scores))
+    order=candidates[np.argsort(-scores[candidates],kind='stable')]
+    if buffer==1.:return order[:size]
+    retain=order[:int(np.ceil(size*buffer))]
+    retain=retain[quantities[retain]>1e-7][:size]
+    fresh=order[~np.isin(order,retain)][:max(0,size-len(retain))]
+    return np.concatenate([retain,fresh])
 
 
 def load_dataset(path, cohort='discovery', until=None):
@@ -142,7 +174,10 @@ def metrics(nav, dates, period=20):
         yr=r[np.asarray([str(day).startswith(year) for day in dates])]
         annual[year]={'return':float(np.prod(1+yr)-1),'sessions':len(yr)}
     std=float(np.std(r,ddof=1)) if len(r)>1 else 0
-    return {'net_return':float(nav[-1]/nav[0]-1),'cagr':float((nav[-1]/nav[0])**(252/len(r))-1),
+    days=int((np.datetime64(str(dates[-1]))-np.datetime64(str(dates[0])))/np.timedelta64(1,'D'))+1
+    return {'net_return':float(nav[-1]/nav[0]-1),'cagr':float((nav[-1]/nav[0])**(365.25/days)-1),
+        'cagr_convention':'ACT/365.25, first session date through last session date inclusive',
+        'trading_252_cagr':float((nav[-1]/nav[0])**(252/len(r))-1),
         'maximum_drawdown':float(-np.min(nav/np.maximum.accumulate(nav)-1)),
         'annual_volatility':std*np.sqrt(252),'sharpe_zero_cash':float(np.mean(r)/std*np.sqrt(252)) if std else 0.0,
         'nonoverlap_period_sessions':period,'period_count':len(blocks),'winning_periods':int(np.sum(b>0)),
@@ -178,17 +213,25 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
     if policy.family not in f['score'] or policy.rebalance not in (5,10,20,40,60):raise ValueError('unknown policy')
     if policy.signal_lag<1 or policy.cost_bps<0 or not 0<policy.participation<=.05:raise ValueError('invalid execution policy')
     if policy.regime not in ('none','lagged_market_trend'):raise ValueError('unknown market regime')
+    if policy.weighting not in ('equal','inverse_volatility') or not 0<policy.max_weight<=1:
+        raise ValueError('invalid allocation policy')
+    if policy.holding_buffer<1 or not 0<=policy.exposure_floor<=1 or policy.size<1:
+        raise ValueError('invalid selection policy')
+    if policy.target_vol is not None and policy.target_vol<=0:raise ValueError('invalid volatility budget')
+    if policy.risk_rebalance is not None and policy.risk_rebalance<1:raise ValueError('invalid risk cadence')
     dates=d['dates'];indices=np.flatnonzero((dates>=start)&(dates<=end))
     if not len(indices) or indices[0]<policy.signal_lag:raise ValueError('insufficient warmup/calendar')
     n=len(d['symbols']);q=np.zeros(n);cash=policy.initial_cash;receivables=0.;payables={}
     last=np.nan_to_num(d['close'][indices[0]-1],nan=0.0);stale=np.zeros(n,int)
     cost=np.zeros(n);receipts=np.zeros(n);entry=np.full(n,-1,int)
     fee=policy.cost_bps/10000;nav=[cash];exposure=[];daily_turnover=[];trades=[];fill_count=0;fees=0.
-    blocked={'buy':0,'sell':0,'capacity_limited':0,'unverified_action_held':0}
+    blocked={'buy':0,'sell':0,'capacity_limited':0,'unverified_action_held':0,
+             'ex_post_capacity_breach':0,'ex_post_no_volume_fill':0}
     largest_stale=0;worst_stale_weight=0.;minimum_cash=cash;held_anomalies=[];step_log=[]
     events,action_gaps=action_schedule(d)
     amount,amount_bound=liquidity_amount(d);bound_fills=0
     lots=np.where(np.char.startswith(d['symbols'],'688'),200.,100.) if policy.round_lots else np.full(n,1e-8)
+    order=np.empty(0,dtype=int)
     for offset,t in enumerate(indices):
         previous_q=q.copy();reference=last.copy()
         for j,extra,dividend,pay,quality in events.get(int(t),[]):
@@ -203,31 +246,44 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
             if quality!='verified':blocked['unverified_action_held']+=1
         received=payables.pop(int(t),0.);cash+=received;receivables-=received
         valid=f['valid'][t]
-        tradable=valid&(d['volume'][t]>0)&(d['high'][t]>d['low'][t])&(amount[t]>0)
-        open_price=np.where(valid,d['open'][t],last)
+        # The opening decision must not observe the same day's close, range,
+        # total turnover or retrospective OHLC quality. A printed open and
+        # prior-session liquidity are only a research execution approximation;
+        # exact auction volume, ST/suspension and limit queues remain required
+        # for a production-quality execution reconstruction.
+        opening_observed=np.isfinite(d['open'][t])&(d['open'][t]>0)
+        tradable=opening_observed&f['valid'][t-1]&(d['volume'][t-1]>0)&(amount[t-1]>0)
+        open_price=np.where(opening_observed,d['open'][t],last)
         if np.any((q>1e-7)&(~np.isfinite(open_price)|(open_price<=0))):raise ValueError('held security has no valuation')
-        if offset%policy.rebalance==0:
+        selection_due=offset%policy.rebalance==0
+        risk_due=policy.risk_rebalance is not None and offset%policy.risk_rebalance==0
+        if selection_due or risk_due:
             s=t-policy.signal_lag
-            scores=f['score'][policy.family][s]
-            candidates=np.flatnonzero(np.isfinite(scores))
-            order=candidates[np.argsort(-scores[candidates],kind='stable')]
-            if policy.family!='equal_weight':order=order[:policy.size]
+            if selection_due:
+                scores=f['score'][policy.family][s]
+                order=(np.flatnonzero(np.isfinite(scores)) if policy.family=='equal_weight'
+                       else buffered_selection(scores,q,policy.size,policy.holding_buffer))
             allocation=1.0
-            if policy.regime=='lagged_market_trend' and not f['market_on'][s]:allocation=0.
+            if policy.regime=='lagged_market_trend' and not f['market_on'][s]:allocation=policy.exposure_floor
             if policy.target_vol is not None:
                 vol=f['market_vol'][s]
                 allocation*=min(1.,policy.target_vol/max(float(vol),.05)) if np.isfinite(vol) else 0.
             equity=cash+float(q@np.nan_to_num(open_price))+receivables
             target=np.zeros(n)
             if len(order) and allocation>0:
-                per_name=equity*allocation/len(order)
+                raw=np.ones(len(order))
+                if policy.weighting=='inverse_volatility':
+                    volatility=f['vol20'][s,order]
+                    # Missing risk estimates do not silently become tiny risk.
+                    usable=np.isfinite(volatility)&(volatility>0)
+                    order=order[usable];raw=1/np.maximum(volatility[usable],.005)
+                weights=capped_weights(raw,policy.max_weight)
                 good=order[np.isfinite(open_price[order])&(open_price[order]>0)]
-                target[good]=np.floor(per_name/open_price[good]/lots[good])*lots[good]
+                good_weights=weights[np.isfinite(open_price[order])&(open_price[order]>0)]
+                target[good]=np.floor(equity*allocation*good_weights/open_price[good]/lots[good])*lots[good]
             with np.errstate(divide='ignore',invalid='ignore'):
                 gap=open_price/reference-1
-            # Signal-date ADV is known. Observed daily amount only reduces the
-            # fill cap; it never changes ranking or replaces a rejected name.
-            cap=np.minimum(np.nan_to_num(f['adv'][s]),amount[t])*policy.participation
+            cap=np.minimum(np.nan_to_num(f['adv'][s]),amount[t-1])*policy.participation
             can_sell=tradable&(gap>-.048)&(reference>0)
             can_buy=tradable&(gap<.048)&(reference>0)
             desired_sell=np.maximum(0,q-target)
@@ -257,7 +313,11 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
             new=(buys>1e-7)&(entry<0);entry[new]=t
             q+=buys;cost+=amounts;cash-=float(amounts.sum())
             fees+=float(amounts.sum()*fee/(1+fee));fill_count+=int(np.sum(sells>1e-7)+np.sum(buys>1e-7))
-            bound_fills+=int(np.sum(((sells>1e-7)|(buys>1e-7))&amount_bound[t]))
+            filled=(sells>1e-7)|(buys>1e-7)
+            bound_fills+=int(np.sum(filled&amount_bound[t-1]))
+            traded_notional=np.nan_to_num((sells+buys)*open_price)
+            blocked['ex_post_capacity_breach']+=int(np.sum(filled&(traded_notional>amount[t]*policy.participation+1e-7)))
+            blocked['ex_post_no_volume_fill']+=int(np.sum(filled&(~np.isfinite(d['volume'][t])|(d['volume'][t]<=0))))
             turnover=float(sold.sum()+amounts.sum()/(1+fee))/equity
         else:turnover=0.
         minimum_cash=min(minimum_cash,cash)
@@ -274,9 +334,12 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
                 for j in np.flatnonzero(held&(np.abs(f['returns'][t])>.35)))
         if not np.isfinite(wealth) or wealth<=0:raise ValueError('invalid marked NAV')
         nav.append(wealth);exposure.append(marked/wealth);daily_turnover.append(turnover)
-        if keep_trades and offset%policy.rebalance==0:
+        if keep_trades and (selection_due or risk_due):
             step_log.append({'date':str(dates[t]),'signal_date':str(dates[t-policy.signal_lag]),'cash':cash,'nav':wealth,
-                             'positions':int(held.sum()),'exposure':marked/wealth,'turnover':turnover})
+                             'positions':int(held.sum()),'exposure':marked/wealth,'turnover':turnover,
+                             'selection_due':selection_due,'target_allocation':allocation,
+                             'buy_notional':float(np.nan_to_num(buys*open_price).sum()),
+                             'sell_notional':float(sold.sum()),'selected_symbols':d['symbols'][order].tolist()})
     # Mark open positions and charge a liquidation fee provision, without
     # fabricating final fills or classifying open episodes as winning trades.
     liquidation_fee=float(q@last)*fee
@@ -294,7 +357,8 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
         'marked_value':float(q[j]*last[j]),'last_observed_date':str(dates[indices[-1]-stale[j]])}
         for j in np.flatnonzero((q>1e-7)&(stale>0))]
     out={'policy':asdict(policy),'name':policy.name,'metrics':m,'dates':dates[indices].tolist(),'nav':nav,
-         'exposure':exposure,'turnover':daily_turnover,'version':VERSION,'production_approved':False}
+         'exposure':exposure,'turnover':daily_turnover,'version':VERSION,'production_approved':False,
+         'execution_assumption':'printed next open; only prior-session sizing/liquidity; gap-limit proxy; no auction/order-book verification'}
     if keep_trades:out.update(trades=trades,rebalance_log=step_log)
     return out
 

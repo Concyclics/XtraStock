@@ -6,9 +6,9 @@ from contextlib import nullcontext
 from zoneinfo import ZoneInfo
 
 
-def load_intelligence(conn, cutoff, as_of=None, stock_codes=None, limit=10, scope='all', experiment_project=None, experiment_filters=None, experiment_offset=0):
-    if scope not in {'all', 'focus', 'learning','pool','experiments'}:
-        raise ValueError('scope must be all, focus, learning, pool or experiments')
+def load_intelligence(conn, cutoff, as_of=None, stock_codes=None, limit=10, scope='all', experiment_project=None, experiment_filters=None, experiment_offset=0, method_query=None):
+    if scope not in {'all', 'focus', 'learning','pool','experiments','methods'}:
+        raise ValueError('scope must be all, focus, learning, pool, experiments or methods')
     if cutoff.tzinfo is None:
         raise ValueError('decision cutoff must include timezone')
     day = cutoff.astimezone(ZoneInfo('Asia/Shanghai')).date()
@@ -51,7 +51,12 @@ def load_intelligence(conn, cutoff, as_of=None, stock_codes=None, limit=10, scop
                      'page_size':limit,
                      'offset':int(experiment_offset),
                      'next_offset':int(experiment_offset)+len(result_rows) if len(result_rows)==limit else None}
+    methods=None
+    if scope=='methods' and conn is not None:
+        from scripts.analytics.quant_method_library import load_methods
+        methods={'rows':load_methods(conn,cutoff,limit,method_query)}
     return {
+        'methods':methods,
         'experiments':experiments,
         'as_of_date': as_of, 'decision_cutoff': cutoff, 'scope': scope,
         'focus': focus, 'learning': learning,'candidate_pool':pool,
@@ -93,6 +98,7 @@ def compact_monitor(monitor):
 def intelligence_rows(state):
     """Keep compact source-bound records instead of returning uncitable prose."""
     rows=list((state.get('experiments') or {}).get('rows',[]))
+    rows.extend((state.get('methods') or {}).get('rows',[]))
     pool=state.get('candidate_pool') or {}
     if pool.get('status')=='available':
         mining=pool.get('mining') or {}

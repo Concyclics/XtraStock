@@ -138,14 +138,15 @@ def get_native_tool_schemas(config, context_text=None, *, route=True):
         ),
         _schema(
             "finance_research_intelligence",
-            "Read the persistent candidate pool (scope=pool): daily discoveries, weekly reranking/removals, monthly thesis review, separate long-term/timing scores and frozen 5/20-session forecasts. Pool summary and configurable mining history policy are included automatically: use limit=2..5 for summary plus example companies, or stock_codes for detail. Also read evidence attention (focus), measured prediction quality (learning), and registered offline backtest tables (experiments; optionally experiment_project). Offline results are research evidence, never approved forward predictions. Use persisted membership and reasons for stock-pool questions; ranking scores are not return percentages.",
+            "Read the persistent candidate pool (scope=pool): daily discoveries, weekly reranking/removals, monthly thesis review, separate long-term/timing scores and frozen 5/20-session forecasts. Pool summary and configurable mining history policy are included automatically: use limit=2..5 for summary plus example companies, or stock_codes for detail. Also read evidence attention (focus), measured prediction quality (learning), registered offline backtest tables (experiments; optionally experiment_project), and primary-source quantitative methods (methods; optional method_query). Method cards include source URLs, required data, implementation adaptations and evaluation tests; compare them with local experiments before choosing a strategy. Offline results are research evidence, never approved forward predictions. Use persisted membership and reasons for stock-pool questions; ranking scores are not return percentages.",
             {
-                "scope": {"type": "STRING", "enum": ["all", "focus", "learning", "pool", "experiments"]},
+                "scope": {"type": "STRING", "enum": ["all", "focus", "learning", "pool", "experiments", "methods"]},
+                "method_query": {"type": "STRING", "description": "Optional literal phrase for method title, topic, source or data requirement; for example 图谱, 波动率, EPS or 成本. Omit to browse the method catalog."},
                 "experiment_project": {"type":"STRING", "description":"Optional exact project key from the experiment catalog."},
                 "experiment_offset": {"type":"INTEGER", "description":"Experiments return at most 5 citable rows per page. Start at 0; use experiment_next_offset to continue the same project, filters and decision_cutoff. Never treat the first page as the full experiment."},
                 "experiment_filters": {"type":"OBJECT", "description":"Optional exact result filters; inspect returned column values first.",
                     "properties":{"year":{"type":"INTEGER"},"horizon":{"type":"INTEGER"},"cost":{"type":"NUMBER"},
-                        "cohort":{"type":"STRING"},"model":{"type":"STRING"}}},
+                        "cohort":{"type":"STRING"},"model":{"type":"STRING"},"allocation":{"type":"STRING"}}},
                 "stock_codes": {"type": "ARRAY", "items": {"type": "STRING"}},
                 "stock_code": {"type": "STRING"}, "as_of_date": {"type": "STRING"},
                 "decision_cutoff": {"type": "STRING"}, "limit": {"type": "INTEGER"},

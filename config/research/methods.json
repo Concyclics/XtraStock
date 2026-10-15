@@ -1,0 +1,287 @@
+{
+  "schema_version": 1,
+  "methods": [
+    {
+      "method_key": "characteristic_interactions",
+      "title": "动量、流动性与波动率的非线性交互",
+      "source": {
+        "title": "Empirical Asset Pricing via Machine Learning",
+        "authors": [
+          "Shihao Gu",
+          "Bryan Kelly",
+          "Dacheng Xiu"
+        ],
+        "year": 2020,
+        "url": "https://www.nber.org/papers/w25398",
+        "scope": "美国股票风险溢价；并非A股收益保证"
+      },
+      "finding": "原研究比较多种预测器，非线性交互是树模型和神经网络相对简单模型的重要增益来源，动量、流动性和波动率具有较强预测贡献。",
+      "adaptation": "先用截面排名、有限交互项和正则线性模型测试增量；复杂网络须在相同样本、成本和搜索预算下胜过该基线。",
+      "required_data": [
+        "按交易日对齐的复权价格",
+        "当时可见的成交额与成交量",
+        "成熟收益标签",
+        "历史证券样本与交易状态"
+      ],
+      "tests": [
+        "时间切分与标签成熟隔离",
+        "去掉交互项的对照",
+        "跨股票验证",
+        "扣费收益与最大回撤"
+      ],
+      "limitations": [
+        "不能把美股研究收益迁移成A股预期收益",
+        "模型复杂度增加时必须记录全部试验"
+      ],
+      "tags": [
+        "预测",
+        "机器学习",
+        "因子",
+        "动量",
+        "流动性"
+      ]
+    },
+    {
+      "method_key": "volatility_budget",
+      "title": "波动率管理与组合风险预算",
+      "source": {
+        "title": "Volatility-Managed Portfolios",
+        "authors": [
+          "Alan Moreira",
+          "Tyler Muir"
+        ],
+        "year": 2017,
+        "url": "https://www.nber.org/papers/w22208",
+        "scope": "多类因子组合；原策略与本项目的无杠杆多头约束不同"
+      },
+      "finding": "原研究检验高波动时减少风险敞口，发现风险调整后表现可以改善。",
+      "adaptation": "使用滞后的波动率估计、无杠杆仓位上限和独立风险调仓；本项目的目标波动率和趋势仓位下限属于待检验改编，并非论文原样复现。",
+      "required_data": [
+        "历史收益序列",
+        "实际交易日历",
+        "完整现金和持仓账本"
+      ],
+      "tests": [
+        "与相同选股的满仓组合比较",
+        "波动率估计只能使用过去数据",
+        "快速反转行情",
+        "额外换手和费用"
+      ],
+      "limitations": [
+        "降仓可能错过急速反弹",
+        "市场波动率不能完全代表所选股票组合风险"
+      ],
+      "tags": [
+        "风控",
+        "回撤",
+        "仓位",
+        "波动率"
+      ]
+    },
+    {
+      "method_key": "cost_aware_turnover",
+      "title": "把交易成本和排名缓冲纳入选股",
+      "source": {
+        "title": "Trading Costs of Asset Pricing Anomalies",
+        "authors": [
+          "Andrea Frazzini",
+          "Ronen Israel",
+          "Tobias J. Moskowitz"
+        ],
+        "year": 2012,
+        "url": "https://www.aqr.com/insights/research/working-paper/trading-costs-of-asset-pricing-anomalies",
+        "scope": "机构实际交易与多个发达股票市场"
+      },
+      "finding": "不同异常收益策略的成本和容量差异明显，毛收益不能替代可实施的净收益评估。",
+      "adaptation": "对旧持仓设置固定排名保留区间，限制集中度和历史成交参与率，同时报告两档费用及成交不足。",
+      "required_data": [
+        "原始价格",
+        "历史成交额",
+        "股数与现金账本",
+        "费用假设",
+        "公司行动"
+      ],
+      "tests": [
+        "保留全部被拒绝和未成交订单",
+        "15和30基点每边成本",
+        "缓冲前后换手对照",
+        "不得用当天总成交量预先决定开盘订单"
+      ],
+      "limitations": [
+        "固定基点费用不是实际冲击成本估计",
+        "开盘集合竞价容量和价格队列需要额外数据"
+      ],
+      "tags": [
+        "交易",
+        "换手",
+        "成本",
+        "容量",
+        "选股"
+      ]
+    },
+    {
+      "method_key": "value_momentum_diversification",
+      "title": "估值与动量的互补组合",
+      "source": {
+        "title": "Value and Momentum Everywhere",
+        "authors": [
+          "Cliff Asness",
+          "Tobias J. Moskowitz",
+          "Lasse Heje Pedersen"
+        ],
+        "year": 2013,
+        "url": "https://www.aqr.com/insights/research/journal-article/value-and-momentum-everywhere",
+        "scope": "多市场和资产类别；与A股多头账户不等价"
+      },
+      "finding": "原研究讨论估值和动量在多市场的共同特征及组合互补性。",
+      "adaptation": "把已核实的EPS估值与同机构修正作为可缺失的附加信息，保留缺失指示；不因为缺少卖方覆盖而从基础价格股票池中删除该股票。",
+      "required_data": [
+        "同口径价格",
+        "预测年度与EPS单位",
+        "研报公开时间",
+        "拆股基础",
+        "机构身份"
+      ],
+      "tests": [
+        "价格基线",
+        "估值增量",
+        "EPS修正单独增量",
+        "有无卖方覆盖分组",
+        "跨年份稳定性"
+      ],
+      "limitations": [
+        "预测EPS/价格是本项目的估值代理，不能等同原论文所有价值指标",
+        "需要保留已出现的负实验结果"
+      ],
+      "tags": [
+        "估值",
+        "EPS",
+        "盈利修正",
+        "选股",
+        "动量"
+      ]
+    },
+    {
+      "method_key": "directed_economic_links",
+      "title": "有证据的客户供应商传导图",
+      "source": {
+        "title": "Economic Links and Predictable Returns",
+        "authors": [
+          "Lauren Cohen",
+          "Andrea Frazzini"
+        ],
+        "year": 2008,
+        "url": "https://www.aqr.com/Insights/Research/Journal-Article/Economic-Links-and-Predictable-Returns",
+        "scope": "有主要客户披露的经济关联公司"
+      },
+      "finding": "原研究利用公开客户关系，检验相关公司信息吸收存在时滞所产生的收益可预测性。",
+      "adaptation": "图谱按关系方向、收入依赖、公开时间和证据质量传递事件；共同被研报覆盖只作为关联对照，不当作真实供应链。",
+      "required_data": [
+        "公开时点明确的客户供应商边",
+        "关系方向与有效期",
+        "事件原始证据",
+        "公司身份",
+        "成熟后续价格"
+      ],
+      "tests": [
+        "打乱关系的对照",
+        "逆向边对照",
+        "剔除自身传播",
+        "行业和动量基线",
+        "未审核边排除"
+      ],
+      "limitations": [
+        "缺少足够历史方向边时仅用于证据检索和解释",
+        "热点中心性本身不能作为收益因果结论"
+      ],
+      "tags": [
+        "图谱",
+        "temporal graph",
+        "热点",
+        "供应链",
+        "新闻"
+      ]
+    },
+    {
+      "method_key": "selection_bias_control",
+      "title": "多重试验与回测过拟合校正",
+      "source": {
+        "title": "The Deflated Sharpe Ratio: Correcting for Selection Bias, Backtest Overfitting, and Non-Normality",
+        "authors": [
+          "David H. Bailey",
+          "Marcos Lopez de Prado"
+        ],
+        "year": 2014,
+        "url": "https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf",
+        "scope": "策略选择的统计评价方法"
+      },
+      "finding": "样本短、收益非正态和从多个试验挑最好结果会夸大夏普比率，原研究给出相应统计调整。",
+      "adaptation": "预先登记所有模型、配置和成本，保留失败结果；探索历史和独立验证分开，日期区块区间不冒充已校正策略搜索偏差。",
+      "required_data": [
+        "完整试验台账",
+        "所有策略收益序列",
+        "样本长度",
+        "收益偏度峰度",
+        "策略间依赖"
+      ],
+      "tests": [
+        "协议与代码指纹核对",
+        "不重用测试期选参",
+        "区块统计",
+        "独立历史和前瞻记录"
+      ],
+      "limitations": [
+        "独立试验数不能直接等于高度相关配置数",
+        "单一最好回测超过20%不足以证明稳定收益"
+      ],
+      "tags": [
+        "回测",
+        "统计",
+        "过拟合",
+        "验收"
+      ]
+    },
+    {
+      "method_key": "multiwindow_price_volume_trees",
+      "title": "多周期量价特征与滚动树模型选股",
+      "source": {
+        "title": "Qlib Alpha158 feature definitions and LightGBM benchmark",
+        "authors": [
+          "Microsoft Qlib contributors"
+        ],
+        "year": 2026,
+        "url": "https://github.com/microsoft/qlib/blob/main/qlib/contrib/data/loader.py",
+        "scope": "开源量化研究特征和模型基线；本文实现为缩减后的独立定义，不等同于复现其收益"
+      },
+      "finding": "Qlib 提供价格形态、多周期收益、波动和成交量统计等特征族，可用于检查非线性模型是否比简单线性组合获得稳定的选股增量。",
+      "adaptation": "使用本库的量价特征，比较正则线性、收益树、截面排名树和固定融合；每年只用之前成熟的标签训练，树轮数只在隔离后的历史验证段选择。",
+      "required_data": [
+        "日线开高低收与统一成交量单位",
+        "可核验的复权和分红送转历史",
+        "包含退市证券的历史样本",
+        "训练、验证与测试的市场交易日历"
+      ],
+      "tests": [
+        "修改未来行不改变此前特征",
+        "训练标签不跨过验证或测试起点",
+        "持仓和交易成本完全一致的线性基线",
+        "逐年收益、回撤和样本外排名效果",
+        "全部试验及失败数据来源均登记"
+      ],
+      "limitations": [
+        "仅有当前存续股票的样本会造成幸存者偏差",
+        "日线开盘模拟无法证明真实开盘集合竞价成交",
+        "回溯复权与历史交易状态不足时不能批准为生产预测"
+      ],
+      "tags": [
+        "预测",
+        "树模型",
+        "量价",
+        "动量",
+        "流动性",
+        "选股",
+        "Qlib"
+      ]
+    }
+  ]
+}
