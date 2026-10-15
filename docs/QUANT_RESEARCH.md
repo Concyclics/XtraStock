@@ -142,6 +142,45 @@ SIGTERM stop path. It does not update canonical prices, enable a scheduler, or
 turn negative early QFQ prices into return labels. Source archives require
 provider comparison and corporate-action validation before use.
 
+## Delisting and suspension evidence
+
+Missing quotes alone do not establish a delisting or suspension. Reviewed
+exchange evidence uses the actual delisting date, inclusive of that day, and
+keeps a gap between the last known quote and delisting unresolved. Historical
+stocks and stranded positions are retained; the last quote is not a liquidation
+price. Research still uses the five-year primary window.
+
+`import_delisting_evidence.py` validates saved SSE JSON or SZSE XLSX responses
+against a request manifest. Its `reviewed-delisting-v1` manifest has `items`
+containing `exchange`, `symbol`, `delisted_date`, `reviewed`, and a `source`
+object with `format`, `file`, `url`, `sha256`, `observed_at`. Formats are
+`sse_delisted_json` and `szse_delisted_xlsx`. The original official URL and
+timezone-aware observation time must be retained. Source files stay outside Git.
+
+```bash
+python apps/finagent/scripts/analytics/import_delisting_evidence.py \
+  --manifest .local/lifecycle/delisting-manifest.json \
+  --output-dir .local/lifecycle/preflight
+# Add --apply only after reviewing the validated source dates and preflight.
+```
+
+Imports archive previous master/version rows, reject conflicting prices on or
+after delisting, and record current import time as system availability. They do
+not create historical prices or claim that newly found evidence was known to the
+system in the past. Repeat imports do not rewrite the same evidence.
+
+`resolve_market_nontrading_gaps.py` supports closed suspension intervals and
+dated continuation confirmations. A continuation is bounded at the confirmation
+date; it does not certify later days or imply a delisting. A resumption does not
+automatically certify ST history or all trading rules.
+
+Lifecycle consumers apply both valid-date and knowledge cutoffs before resolving
+versions. Reviewed evidence or conflicts outrank inferred baselines; within that
+tier, later available revisions win. Baseline refreshes append versions and
+retain earlier system knowledge. A scoped `--asset-ids-json` repair does not
+update whole-market coverage watermarks. Tests include actual PostgreSQL
+temporary tables and transaction rollback when `FINAGENT_DB_TESTS=1`.
+
 ## Development checks
 
 ```bash
@@ -157,4 +196,5 @@ Primary references: [Gu, Kelly and Xiu](https://www.nber.org/papers/w25398),
 [trading-cost research](https://www.aqr.com/insights/research/working-paper/trading-costs-of-asset-pricing-anomalies),
 [Qlib source](https://github.com/microsoft/qlib/blob/main/qlib/contrib/data/loader.py),
 [equal-weight portfolio comparison](https://doi.org/10.1093/rfs/hhm075),
+[delisting bias](https://doi.org/10.1111/j.1540-6261.1997.tb03818.x),
 and [selection-bias research](https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf).

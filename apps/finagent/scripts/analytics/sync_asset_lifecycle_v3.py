@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import json
+import uuid
 import sys
 from pathlib import Path
 
@@ -16,139 +18,103 @@ if str(PIPELINE_DIR) not in sys.path:
 from v3_ops import record_quality, set_dataset_watermark, stage_run  # noqa: E402
 
 
+# Append-only inferred snapshots. A missing price does not establish a suspension
+# or delisting. Actual delisting is inclusive; any gap before it remains unknown.
+BASELINE_SQL = """
+WITH target_assets AS MATERIALIZED (
+  SELECT * FROM market.assets WHERE asset_type IN ('stock','index','fund')
+    AND NOT (metadata ? 'identity_alias_of')
+    AND (%(asset_ids)s::uuid[] IS NULL OR asset_id=ANY(%(asset_ids)s::uuid[]))
+), observed_bars AS (
+  -- Consolidated history avoids traversing old raw provider chunks. Recent raw
+  -- prices cover the reference-before-canonical ordering in the daily pipeline.
+  SELECT b.asset_id,b.dt FROM market.canonical_bars_daily_v2 b
+  WHERE b.dt BETWEEN (%(as_of)s::date-INTERVAL '5 years')::date AND %(as_of)s
+    AND b.close>0 AND b.quality_status NOT IN ('conflict','rejected','incomplete')
+    AND (%(asset_ids)s::uuid[] IS NULL OR b.asset_id=ANY(%(asset_ids)s::uuid[]))
+  UNION ALL
+  SELECT b.asset_id,(b.ts AT TIME ZONE 'Asia/Shanghai')::date FROM market.bars_daily b
+  WHERE b.ts>=((%(as_of)s::date-10)::timestamp AT TIME ZONE 'Asia/Shanghai')
+    AND b.ts<((%(as_of)s::date+1)::timestamp AT TIME ZONE 'Asia/Shanghai')
+    AND b.close>0
+    AND (%(asset_ids)s::uuid[] IS NULL OR b.asset_id=ANY(%(asset_ids)s::uuid[]))
+), bar_stats AS (
+  SELECT asset_id,min(dt) first_dt,max(dt) last_dt FROM observed_bars GROUP BY asset_id
+), classified AS (
+  SELECT a.asset_id,a.exchange,a.listed_date,a.delisted_date,b.first_dt,b.last_dt,
+    greatest(coalesce(a.listed_date,b.first_dt,%(as_of)s::date),
+      (%(as_of)s::date-INTERVAL '5 years')::date) start_dt,
+    coalesce((a.metadata->>'is_st')::boolean,false)
+      OR coalesce(a.name,'') ~* '(^|[^A-Z])\*?ST' AS is_st,
+    CASE WHEN a.listed_date>%(as_of)s THEN 'pre_listed'
+      WHEN a.delisted_date<=%(as_of)s THEN 'delisted'
+      WHEN b.last_dt=%(as_of)s THEN 'active' ELSE 'unknown' END state
+  FROM target_assets a LEFT JOIN bar_stats b USING(asset_id)
+), source_rows AS (
+  SELECT asset_id,start_dt valid_from,
+    CASE WHEN state='delisted' THEN least(last_dt,delisted_date-1) ELSE last_dt END valid_to,
+    'active'::text lifecycle_status,true is_tradable,is_st,false is_suspended,
+    upper(coalesce(exchange,'')) exchange,state inferred_state
+  FROM classified WHERE first_dt IS NOT NULL AND state<>'pre_listed'
+  UNION ALL
+  SELECT asset_id,coalesce(last_dt+1,%(as_of)s::date),
+    CASE WHEN state='delisted' THEN delisted_date-1 ELSE %(as_of)s::date END,
+    'unknown',false,is_st,false,upper(coalesce(exchange,'')),state
+  FROM classified WHERE state<>'pre_listed'
+  UNION ALL
+  SELECT asset_id,delisted_date,NULL,'delisted',false,is_st,false,upper(coalesce(exchange,'')),state
+  FROM classified WHERE state='delisted'
+  UNION ALL
+  SELECT asset_id,%(as_of)s::date,listed_date-1,'pre_listed',false,is_st,false,upper(coalesce(exchange,'')),state
+  FROM classified WHERE state='pre_listed'
+), prepared AS (
+  SELECT *,jsonb_build_object('as_of',%(as_of)s::date,'inferred_state',inferred_state,
+    'pit_limit','bar-presence and current metadata; official history pending',
+    'missing_price_is_not_delisting',true,'is_st_verified',false,
+    'observed_price_window_start',(%(as_of)s::date-INTERVAL '5 years')::date,
+    'price_presence_sources','five-year canonical and ten-day raw; inferred only') metadata
+  FROM source_rows WHERE valid_to IS NULL OR valid_to>=valid_from
+), inserted AS (
+  INSERT INTO market.asset_lifecycle_versions(asset_id,valid_from,valid_to,lifecycle_status,is_tradable,is_st,
+    is_suspended,exchange,source_name,available_at,quality_status,metadata)
+  SELECT s.asset_id,s.valid_from,s.valid_to,s.lifecycle_status,s.is_tradable,s.is_st,s.is_suspended,
+    nullif(s.exchange,''),'market.assets baseline:v3',now(),'unverified',s.metadata
+  FROM prepared s WHERE NOT EXISTS (
+    SELECT 1 FROM market.asset_lifecycle_versions v WHERE v.source_name='market.assets baseline:v3'
+      AND v.asset_id=s.asset_id AND v.valid_from=s.valid_from AND v.valid_to IS NOT DISTINCT FROM s.valid_to
+      AND v.lifecycle_status=s.lifecycle_status AND v.is_st=s.is_st AND v.metadata=s.metadata
+  ) RETURNING asset_id
+)
+SELECT count(*) rows,count(*) FILTER(WHERE is_tradable) tradable,
+  count(*) FILTER(WHERE lifecycle_status='delisted') delisted,
+  count(*) FILTER(WHERE lifecycle_status='unknown') unknown,
+  (SELECT count(*) FROM inserted) inserted FROM prepared
+"""
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Synchronize current lifecycle ranges from market.assets.")
     parser.add_argument("--as-of", default=dt.date.today().isoformat())
+    parser.add_argument("--asset-ids-json", type=Path, help="Scoped repair; never update whole-market watermarks.")
     args = parser.parse_args()
+    asset_ids = None
+    if args.asset_ids_json:
+        asset_ids = [uuid.UUID(x) for x in json.loads(args.asset_ids_json.read_text())]
+        if not asset_ids or len(asset_ids) != len(set(asset_ids)):
+            parser.error("asset ID scope must be nonempty and unique")
     as_of = dt.date.fromisoformat(args.as_of)
 
     with stage_run("finance_v3_reference", "asset_lifecycle", expected_date=as_of) as run:
         with connect(autocommit=False, admin=False) as conn:
-            row = conn.execute(
-                """
-                WITH bar_stats AS (
-                  SELECT asset_id,
-                         min((ts AT TIME ZONE 'Asia/Shanghai')::date) AS first_dt,
-                         max((ts AT TIME ZONE 'Asia/Shanghai')::date) AS last_dt,
-                         bool_or(
-                           ts >= (%(as_of)s::date::timestamp AT TIME ZONE 'Asia/Shanghai')
-                           AND ts < ((%(as_of)s::date+1)::timestamp AT TIME ZONE 'Asia/Shanghai')
-                         ) AS has_asof_bar,
-                         min((ts AT TIME ZONE 'Asia/Shanghai')::date) FILTER (
-                           WHERE ts >= ((%(as_of)s::date+1)::timestamp AT TIME ZONE 'Asia/Shanghai')
-                         ) AS next_dt
-                  FROM market.bars_daily
-                  GROUP BY asset_id
-                ), classified AS (
-                  SELECT a.asset_id,a.asset_type,a.name,a.exchange,
-                         coalesce(a.listed_date,b.first_dt,DATE '1990-01-01') AS start_dt,
-                         b.first_dt,b.last_dt,b.next_dt,coalesce(b.has_asof_bar,false) AS has_asof_bar,
-                         coalesce((a.metadata->>'is_st')::boolean,false)
-                           OR coalesce(a.name,'') ~* '(^|[^A-Z])\\*?ST' AS is_st,
-                         CASE
-                           WHEN a.listed_date IS NOT NULL AND a.listed_date > %(as_of)s THEN 'pre_listed'
-                           WHEN a.delisted_date IS NOT NULL AND a.delisted_date <= %(as_of)s THEN 'delisted'
-                           WHEN coalesce(a.lifecycle_status,'active')='delisted' THEN 'delisted'
-                           WHEN coalesce((a.metadata->>'is_active')::boolean,true)=false THEN 'delisted'
-                           WHEN coalesce(a.name,'') ~ '(退市|退$|定转$)' THEN 'delisted'
-                           WHEN b.first_dt IS NULL THEN 'unknown'
-                           WHEN b.last_dt < %(as_of)s - 365 THEN 'delisted'
-                           WHEN coalesce(b.has_asof_bar,false) THEN 'active'
-                           WHEN b.last_dt >= %(as_of)s - 10
-                             AND b.next_dt IS NOT NULL AND b.next_dt <= %(as_of)s + 10
-                           THEN 'suspended'
-                           WHEN b.last_dt >= %(as_of)s - 10
-                             AND b.next_dt IS NULL
-                             AND coalesce((a.metadata->'raw'->>'total_mv')::numeric,0) > 0
-                           THEN 'suspended'
-                           ELSE 'unknown'
-                         END AS state,
-                         CASE
-                           WHEN a.delisted_date IS NOT NULL THEN a.delisted_date
-                           WHEN coalesce(a.lifecycle_status,'active')='delisted'
-                             OR coalesce((a.metadata->>'is_active')::boolean,true)=false
-                             OR coalesce(a.name,'') ~ '(退市|退$|定转$)'
-                             OR b.last_dt < %(as_of)s - 365
-                           THEN b.last_dt
-                         END AS inferred_delisted_dt
-                  FROM market.assets a
-                  LEFT JOIN bar_stats b USING(asset_id)
-                  WHERE a.asset_type IN ('stock','index','fund')
-                    AND NOT (a.metadata ? 'identity_alias_of')
-                ), source_rows AS (
-                  -- Historical active interval before a known delisting or a suspension snapshot.
-                  SELECT asset_id,start_dt AS valid_from,
-                         CASE WHEN state='delisted' THEN inferred_delisted_dt
-                              WHEN state='suspended' THEN %(as_of)s - 1
-                              WHEN state='unknown' THEN last_dt
-                              ELSE NULL END AS valid_to,
-                         'active'::text AS lifecycle_status,true AS is_tradable,
-                         is_st,false AS is_suspended,upper(coalesce(exchange,'')) AS exchange,
-                         state AS inferred_state
-                  FROM classified
-                  WHERE first_dt IS NOT NULL AND state <> 'pre_listed'
-                    AND (state NOT IN ('delisted','suspended','unknown') OR start_dt <= coalesce(
-                      CASE WHEN state='delisted' THEN inferred_delisted_dt
-                           WHEN state='unknown' THEN last_dt ELSE %(as_of)s - 1 END,
-                      start_dt-1
-                    ))
-                  UNION ALL
-                  SELECT asset_id,%(as_of)s,
-                         CASE WHEN next_dt IS NOT NULL THEN next_dt-1 END,
-                         'suspended',false,is_st,true,upper(coalesce(exchange,'')),state
-                  FROM classified WHERE state='suspended'
-                  UNION ALL
-                  SELECT asset_id,next_dt,NULL,'active',true,is_st,false,
-                         upper(coalesce(exchange,'')),state
-                  FROM classified WHERE state='suspended' AND next_dt IS NOT NULL
-                  UNION ALL
-                  SELECT asset_id,coalesce(inferred_delisted_dt+1,%(as_of)s),NULL,
-                         'delisted',false,is_st,false,upper(coalesce(exchange,'')),state
-                  FROM classified WHERE state='delisted'
-                  UNION ALL
-                  SELECT asset_id,coalesce(last_dt+1,%(as_of)s),NULL,'unknown',false,is_st,false,
-                         upper(coalesce(exchange,'')),state
-                  FROM classified WHERE state='unknown'
-                  UNION ALL
-                  SELECT c.asset_id,%(as_of)s,a.listed_date-1,'pre_listed',false,c.is_st,false,
-                         upper(coalesce(c.exchange,'')),c.state
-                  FROM classified c
-                  JOIN market.assets a USING(asset_id)
-                  WHERE state='pre_listed'
-                  UNION ALL
-                  SELECT c.asset_id,a.listed_date,NULL,'active',true,c.is_st,false,
-                         upper(coalesce(c.exchange,'')),c.state
-                  FROM classified c
-                  JOIN market.assets a USING(asset_id)
-                  WHERE state='pre_listed'
-                ), deleted AS (
-                  DELETE FROM market.asset_lifecycle_versions v
-                  WHERE v.source_name IN ('market.assets baseline:v1','market.assets baseline:v2')
-                  RETURNING v.asset_id
-                ), inserted AS (
-                  INSERT INTO market.asset_lifecycle_versions (
-                    asset_id,valid_from,valid_to,lifecycle_status,is_tradable,is_st,
-                    is_suspended,exchange,source_name,available_at,quality_status,metadata
-                  )
-                  SELECT asset_id,valid_from,valid_to,lifecycle_status,is_tradable,is_st,
-                         is_suspended,nullif(exchange,''),'market.assets baseline:v2',now(),
-                         'unverified',jsonb_build_object(
-                           'as_of',%(as_of)s,'inferred_state',inferred_state,
-                           'pit_limit','bar-presence and current metadata; official history pending'
-                         )
-                  FROM source_rows
-                  WHERE valid_to IS NULL OR valid_to >= valid_from
-                  RETURNING asset_id,is_tradable,lifecycle_status
-                )
-                SELECT count(*) AS rows,
-                       count(*) FILTER (WHERE is_tradable) AS tradable,
-                       count(*) FILTER (WHERE lifecycle_status='delisted') AS delisted,
-                       count(*) FILTER (WHERE lifecycle_status='unknown') AS unknown
-                FROM inserted
-                """,
-                {"as_of": as_of},
-            ).fetchone()
+            conn.execute("SET LOCAL statement_timeout='120s'")
+            conn.execute("SET LOCAL lock_timeout='5s'")
+            row = conn.execute(BASELINE_SQL, {"as_of": as_of, "asset_ids": asset_ids}).fetchone()
             conn.commit()
+        if asset_ids is not None:
+            run["quality_status"] = "warn"
+            run["output_watermarks"] = {}
+            print({**dict(row), "scoped_assets": len(asset_ids), "global_watermark_updated": False})
+            return 0
         rows = int(row["rows"] or 0)
         tradable = int(row["tradable"] or 0)
         unknown = int(row.get("unknown") or 0) if "unknown" in row else 0
@@ -175,7 +141,7 @@ def main() -> int:
             data_through=dt.datetime.combine(as_of, dt.time(23, 59), dt.timezone(dt.timedelta(hours=8))),
             row_count=rows, eligible_count=rows,
             coverage_pct=100.0 if rows else 0.0, quality_status=quality,
-            source_version="market.assets baseline:v2",
+            source_version="market.assets baseline:v3",
             details={
                 "tradable": tradable, "delisted": int(row["delisted"] or 0),
                 "unknown": unknown,

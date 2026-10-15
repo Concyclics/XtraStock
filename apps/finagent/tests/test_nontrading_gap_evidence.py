@@ -23,4 +23,14 @@ class NontradingEvidenceTests(unittest.TestCase):
  def test_single_day_requires_explicit_source_duration(self):
   self.item['resume_date']=None;self.item['method']='explicit_single_day';self.item['sources']=self.item['sources'][:1]
   self.assertEqual(validate_item(self.item,{'d':self.doc}),self.doc['announced_at'])
+ def test_continuation_proof_is_bounded_at_confirmed_date(self):
+  body='证券代码600491：公司2026年8月27日停牌，自2026年8月28日继续实施停牌。'
+  self.doc['body']=body;self.item['resume_date']=None;self.item['confirmed_through']='2026-08-28';self.item['method']='confirmed_suspension_interval'
+  self.item['sources'][1]['event']='confirm'
+  for source in self.item['sources']:
+   source['body_sha256']=hashlib.sha256(body.encode()).hexdigest();source['quote_normalized']=body
+  self.item['missing_dates']=['2026-08-27','2026-08-28']
+  validate_item(self.item,{'d':self.doc})
+  self.item['missing_dates'].append('2026-08-29')
+  with self.assertRaisesRegex(ValueError,'outside proven'):validate_item(self.item,{'d':self.doc})
 if __name__=='__main__':unittest.main()

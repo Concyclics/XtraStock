@@ -10,6 +10,7 @@ from common import connect,jsonb
 from factor_validation import purged_folds
 from factor_input_contract import INPUT_CONTRACT_VERSION
 from forecast_baseline import FEATURES,MODEL_VERSION,fit,predict,calibration
+from lifecycle_evidence import lifecycle_order
 
 
 def main():
@@ -30,7 +31,7 @@ def main():
                   SELECT v.* FROM market.asset_lifecycle_versions v WHERE v.asset_id=f.asset_id
                     AND v.valid_from<=f.dt AND (v.valid_to IS NULL OR v.valid_to>=f.dt)
                     AND v.available_at<=f.decision_cutoff
-                  ORDER BY v.available_at DESC,v.valid_from DESC,v.lifecycle_version_id DESC LIMIT 1
+                  ORDER BY {lifecycle_order('v')} LIMIT 1
                 ) life ON life.lifecycle_status='active' AND life.is_tradable AND NOT life.is_st
                    AND NOT life.is_suspended AND life.quality_status='verified'
                 WHERE f.dt>=%s::date-1500 AND f.asset_id=ANY(%s)

@@ -15,11 +15,13 @@ try:
     from .factor_dsl import FEATURES, compile_expression
     from .factor_validation import VALIDATION_VERSION, hac_p_value
     from .factor_input_contract import INPUT_CONTRACT_VERSION, require_stock_horizon
+    from .lifecycle_evidence import lifecycle_order
 except ImportError:  # Direct script execution keeps scripts/analytics on sys.path.
     from common import connect, jsonb
     from factor_dsl import FEATURES, compile_expression
     from factor_validation import VALIDATION_VERSION, hac_p_value
     from factor_input_contract import INPUT_CONTRACT_VERSION, require_stock_horizon
+    from lifecycle_evidence import lifecycle_order
 
 
 def p_value_from_mean(mean: float | None, stddev: float | None, count: int) -> float | None:
@@ -72,7 +74,7 @@ def evaluate(
         SELECT v.* FROM market.asset_lifecycle_versions v
         WHERE v.asset_id=f.asset_id AND v.valid_from<=f.dt AND (v.valid_to IS NULL OR v.valid_to>=f.dt)
           AND v.available_at<=f.decision_cutoff
-        ORDER BY v.available_at DESC,v.valid_from DESC,v.lifecycle_version_id DESC LIMIT 1
+        ORDER BY {lifecycle_order('v')} LIMIT 1
       ) life ON life.lifecycle_status='active' AND life.is_tradable
         AND NOT life.is_st AND NOT life.is_suspended AND life.quality_status<>'conflict'
       LEFT JOIN market.canonical_bars_daily_v2 entry ON entry.asset_id=f.asset_id AND entry.dt=r.entry_date

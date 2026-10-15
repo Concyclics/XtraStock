@@ -12,17 +12,21 @@ from urllib.parse import urlparse
 ROOT=Path(__file__).resolve().parents[2];sys.path.insert(0,str(ROOT))
 from scripts.analytics.common import connect
 from scripts.pipeline.common import pipeline_lock
+from scripts.analytics.lifecycle_evidence import lifecycle_order
 from psycopg.types.json import Jsonb
 SOURCE='cninfo:verified_suspension_gap:v1'
 
 def validate_item(item,documents):
     start=dt.date.fromisoformat(item['interval_start'])
     resume=dt.date.fromisoformat(item['resume_date']) if item.get('resume_date') else None
+    confirmed=dt.date.fromisoformat(item['confirmed_through']) if item.get('confirmed_through') else None
     if resume is not None and resume<=start:raise ValueError('resume must follow suspension')
+    if confirmed is not None and (confirmed<start or resume is not None):raise ValueError('invalid confirmation boundary')
     if not item.get('manual_review'):raise ValueError('reviewed evidence required')
     dates=[dt.date.fromisoformat(x) for x in item['missing_dates']]
     if not dates or len(set(dates))!=len(dates):raise ValueError('empty or duplicate date set')
-    if not all(start<=x<resume if resume else x==start for x in dates):raise ValueError('requested date outside proven interval')
+    end=resume-dt.timedelta(days=1) if resume else confirmed or start
+    if not all(start<=x<=end for x in dates):raise ValueError('requested date outside proven interval')
     events={};public=[]
     for source in item['sources']:
         document=documents[source['document_id']];body=document['body'];normalized=re.sub(r'\s+','',body)
@@ -33,11 +37,14 @@ def validate_item(item,documents):
         if host!='static.cninfo.com.cn' or document['source_url']!=source['source_url']:raise ValueError('official document URL mismatch')
         if dt.datetime.fromisoformat(str(document['announced_at']))!=dt.datetime.fromisoformat(source['public_available_at']):raise ValueError('public timestamp mismatch')
         event_date=dt.date.fromisoformat(source['event_date']);cn=f'{event_date.year}年{event_date.month}月{event_date.day}日'
-        word='停牌' if source['event']=='suspend' else '复牌'
+        if source['event'] not in ('suspend','resume','confirm'):raise ValueError('unknown suspension event')
+        word={'suspend':'停牌','resume':'复牌','confirm':'继续实施停牌'}[source['event']]
         if cn not in source['quote_normalized'] or word not in source['quote_normalized']:raise ValueError('event assertion lacks dated source quote')
         events[source['event']]=event_date;public.append(document['announced_at'])
     if events.get('suspend')!=start or (resume is not None and events.get('resume')!=resume):raise ValueError('start/resume evidence mismatch')
-    if resume is None:
+    if confirmed is not None:
+        if item['method']!='confirmed_suspension_interval' or events.get('confirm')!=confirmed:raise ValueError('confirmation evidence mismatch')
+    elif resume is None:
         if item['method']!='explicit_single_day' or not any(re.search(r'停牌(?:一[天日]|1[天日]|一个交易日)',s['quote_normalized']) for s in item['sources']):raise ValueError('single-day suspension not explicit')
     elif item['method']!='closed_suspension_interval':raise ValueError('unknown interval proof method')
     return max(public)
@@ -94,7 +101,7 @@ def main():
                             (item['asset_id'],day,digest,public,source_ids,Jsonb(metadata))).rowcount
                         # Preserve the earlier unverified ST field, explicitly excluding it
                         # from this evidence's verified scope. Suspension blocks trading either way.
-                        previous=c.execute("SELECT is_st FROM market.asset_lifecycle_versions WHERE asset_id=%s AND valid_from<=%s AND (valid_to IS NULL OR valid_to>=%s) ORDER BY available_at DESC,lifecycle_version_id DESC LIMIT 1",(item['asset_id'],day,day)).fetchone()
+                        previous=c.execute(f"SELECT is_st FROM market.asset_lifecycle_versions WHERE asset_id=%s AND valid_from<=%s AND (valid_to IS NULL OR valid_to>=%s) ORDER BY {lifecycle_order()} LIMIT 1",(item['asset_id'],day,day)).fetchone()
                         life_written+=c.execute("""INSERT INTO market.asset_lifecycle_versions(asset_id,valid_from,valid_to,lifecycle_status,is_tradable,is_st,is_suspended,exchange,source_name,source_document_id,available_at,quality_status,metadata)
                             SELECT %s,%s,%s,'suspended',false,%s,true,%s,%s,%s,now(),'verified',%s
                             WHERE NOT EXISTS(SELECT 1 FROM market.asset_lifecycle_versions WHERE asset_id=%s AND valid_from=%s AND valid_to=%s AND source_name=%s AND metadata->>'evidence_sha256'=%s)""",
