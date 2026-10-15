@@ -123,5 +123,32 @@ class RegistryAlignmentTests(unittest.TestCase):
                 self.assertTrue(row['metric_units']);self.assertEqual(row['gate_status'],'failed')
                 if str(row['metrics']['year'])=='2021':self.assertEqual(row['training_status'],'fixed_rule_diagnostic')
 
+    @unittest.skipUnless(os.getenv('FINAGENT_TEST_DB')=='1','requires temporary SQL tables')
+    def test_capital_and_holdings_filter_separate_comparable_accounts(self):
+        from scripts.analytics.common import connect,jsonb
+        import uuid
+        cutoff=dt.datetime.now(dt.timezone.utc)
+        with connect(autocommit=False) as conn:
+            try:
+                conn.execute("SET LOCAL statement_timeout='5s'")
+                conn.execute('''CREATE TEMP TABLE experiment_artifacts(
+                  artifact_id uuid,relative_path text,project_key text,registered_at timestamptz,
+                  artifact_kind text,payload_status text,content_sha256 text) ON COMMIT DROP''')
+                conn.execute('CREATE TEMP TABLE artifact_records(artifact_id uuid,row_number int,payload jsonb) ON COMMIT DROP')
+                ident=uuid.uuid4()
+                conn.execute('INSERT INTO experiment_artifacts VALUES(%s,%s,%s,%s,%s,%s,%s)',
+                    (ident,'research/fixture/RESULTS.csv','fixture',cutoff,'csv','sql_records','a'*64))
+                for row_number,(capital,holdings) in enumerate([(1000000,100),(10000000,100),(1000000,40)]):
+                    conn.execute('INSERT INTO artifact_records VALUES(%s,%s,%s)',(ident,row_number,
+                        jsonb({'initial_cash':str(capital)+'.0','holdings':str(holdings),'net_return':.1})))
+                class Fixture:
+                    def execute(self,sql,params):
+                        return conn.execute(sql.replace('research.experiment_artifacts','pg_temp.experiment_artifacts').replace('research.artifact_records','pg_temp.artifact_records'),params)
+                selected=load_experiment_results(Fixture(),cutoff,'fixture',20,{'initial_cash':1000000,'holdings':100.0})
+                self.assertEqual([row['row_number'] for row in selected],[0])
+                self.assertEqual(load_experiment_results(Fixture(),cutoff,'fixture',20,{'initial_cash':10000}),[])
+                with self.assertRaises(ValueError):load_experiment_results(Fixture(),cutoff,filters={'initial_cash;DROP':'0'})
+            finally:conn.rollback()
+
 
 if __name__=='__main__':unittest.main()

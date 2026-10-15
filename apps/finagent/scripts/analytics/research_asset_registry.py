@@ -167,7 +167,7 @@ def load_experiment_contracts(conn,cutoff):
 def load_experiment_results(conn,cutoff,project=None,limit=8,filters=None,offset=0):
  """Read small result tables, without exposing file paths or promoting research."""
  filters={str(k):str(v) for k,v in (filters or {}).items()}
- if set(filters)-{'year','horizon','cost','cohort','model','allocation'}:raise ValueError('Unsupported experiment filter')
+ if set(filters)-{'year','horizon','cost','cohort','model','allocation','initial_cash','holdings'}:raise ValueError('Unsupported experiment filter')
  offset=int(offset)
  if not 0<=offset<=10000:raise ValueError('experiment_offset must be between 0 and 10000')
  records=conn.execute('''WITH latest AS (
@@ -187,7 +187,7 @@ def load_experiment_results(conn,cutoff,project=None,limit=8,filters=None,offset
      AND (c.payload IS NULL OR c.payload->'result_artifacts'->>
            substring(a.relative_path FROM length('research/'||a.project_key||'/')+1)=a.content_sha256)
      AND NOT EXISTS(SELECT 1 FROM jsonb_each_text(%s::jsonb) f WHERE
-       CASE WHEN f.key IN ('year','horizon','cost')
+       CASE WHEN f.key IN ('year','horizon','cost','initial_cash','holdings')
          AND (r.payload->>f.key) ~ '^-?[0-9]+([.][0-9]+)?$' AND f.value ~ '^-?[0-9]+([.][0-9]+)?$'
        THEN (r.payload->>f.key)::numeric IS DISTINCT FROM f.value::numeric
        ELSE r.payload->>f.key IS DISTINCT FROM f.value END)

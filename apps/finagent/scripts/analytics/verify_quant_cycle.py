@@ -36,6 +36,25 @@ def verify(experiment):
         raise ValueError('Missing or duplicate experiment results')
     audit, recomputed = [], []
     complete_years = set(protocol.get('complete_test_years', protocol['test_years']))
+    cohort_members = None
+    if protocol.get('portfolio_evaluation_contract') == 1:
+        member_file = experiment / 'COHORT_MEMBERS.json'
+        if checksum(member_file) != protocol['cohort_members_sha256']:
+            raise ValueError('Evaluation cohort membership differs from protocol')
+        cohort_members = {key: set(value) for key, value in json.loads(member_file.read_text()).items()}
+        if 'study_config_sha256' in protocol:
+            for name, key in [('STUDY_CONFIG.json', 'study_config_sha256'),
+                              ('REFERENCE_PROTOCOL.json', 'reference_protocol_sha256'),
+                              ('TRAINING_FOLDS.json', 'reference_training_folds_sha256')]:
+                if checksum(experiment / name) != protocol[key]:
+                    raise ValueError('Frozen portfolio reference differs: ' + name)
+            reference = json.loads((experiment / 'REFERENCE_PROTOCOL.json').read_text())
+            if reference['source'] != protocol['source'] or receipt['sha256'] != protocol['reference_predictions_sha256']:
+                raise ValueError('Portfolio comparison did not preserve reference inputs and predictions')
+            study = json.loads((experiment / 'STUDY_CONFIG.json').read_text())
+            if (protocol['capital'] not in study['capital_levels']
+                    or any(protocol[key] != study[key] for key in ('models', 'cohorts', 'allocations'))):
+                raise ValueError('Portfolio parameters differ from the predeclared study')
     for row in table.to_dict('records'):
         path = experiment / 'simulations' / f"{row['cohort']}-cost{row['cost']}-{row['model']}-{row['allocation']}.json.gz"
         with gzip.open(path, 'rt') as stream:
@@ -46,6 +65,23 @@ def verify(experiment):
         dates = result['dates']
         if len(nav) != len(dates) + 1 or not np.all(np.isfinite(nav)) or np.any(nav <= 0):
             raise ValueError('Invalid NAV path')
+        if cohort_members is not None:
+            capital = protocol['capital']
+            policy = result['policy']
+            if policy['initial_cash'] != capital or nav[0] != capital or row['initial_cash'] != capital:
+                raise ValueError('Actual and reported capital differ from protocol')
+            if policy['cost_bps'] != row['cost']:
+                raise ValueError('Actual cost differs from reported cost')
+            if row['allocation'] == 'benchmark':
+                holdings = len(cohort_members[row['cohort']]) if row['model'] == 'equal_weight' else 40
+            else:
+                holdings = protocol['allocations'][row['allocation']].get('size', protocol.get('holdings', 40))
+            if policy['size'] != holdings or row['holdings'] != holdings:
+                raise ValueError('Actual and reported holdings differ from protocol')
+            allowed = cohort_members[row['cohort']]
+            if any(not set(step['selected_symbols']) <= allowed or len(step['selected_symbols']) > holdings
+                   for step in result['rebalance_log']):
+                raise ValueError('Selected portfolio differs from declared cohort or holdings')
         calendar_days = (date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])).days + 1
         checks = {'net_return': nav[-1] / nav[0] - 1,
                   'net_cagr': (nav[-1] / nav[0]) ** (365.25 / calendar_days) - 1,
@@ -69,6 +105,9 @@ def verify(experiment):
             subset = subset[subset.year == year]
             if len(subset) != 1 or not np.isclose(subset.iloc[0].net_return, year_return, atol=1e-10, rtol=0):
                 raise ValueError('Yearly result differs from NAV')
+            if cohort_members is not None and (
+                    subset.iloc[0].initial_cash != capital or subset.iloc[0].holdings != holdings):
+                raise ValueError('Yearly capital or holdings differ from actual policy')
             if 'complete_test_years' in protocol:
                 record = subset.iloc[0]
                 if (bool(record.is_partial_year) != (year not in complete_years)

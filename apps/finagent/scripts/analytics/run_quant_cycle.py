@@ -141,18 +141,27 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
     start = f"{min(spec['test_years'])}-01-01"
     end = spec.get('evaluation_until', f"{max(spec['test_years'])}-12-31")
     complete_years = {str(year) for year in spec.get('complete_test_years', spec['test_years'])}
+    capital = float(spec.get('capital', 10_000_000))
+    if not np.isfinite(capital) or capital <= 0:
+        raise ValueError('capital must be positive and finite')
+    for allocation in allocations.values():
+        if set(allocation) & {'family', 'cost_bps', 'initial_cash'}:
+            raise ValueError('allocation cannot override model, declared cost or capital')
     for cohort, cost in itertools.product(spec['cohorts'], spec['cost_bps_per_side']):
-        mask = data['cohort'] == cohort
+        mask = np.ones(len(data['symbols']), bool) if cohort == 'all' else data['cohort'] == cohort
+        if not mask.any():
+            raise ValueError('unknown or empty evaluation cohort: ' + cohort)
         scope_features = dict(features)
         equal_score = np.where(features['eligible'] & mask[None, :], 1., np.nan)
         plans = [('equal_weight', 'benchmark', Policy('equal_weight', size=int(mask.sum()),
-                  cost_bps=cost, round_lots=False), equal_score)]
+                  cost_bps=cost, initial_cash=capital, round_lots=False), equal_score)]
         plans.append(('momentum_low_vol', 'benchmark', Policy('momentum_low_vol', size=40,
-                      cost_bps=cost, max_weight=.05, holding_buffer=1.5),
+                      cost_bps=cost, initial_cash=capital, max_weight=.05, holding_buffer=1.5),
                       np.where(mask[None, :], features['score']['momentum_low_vol'], np.nan)))
         for name, allocation in itertools.product(spec['models'], allocations):
-            plans.append((name, allocation, Policy(name, size=40, cost_bps=cost,
-                          max_weight=.05, holding_buffer=1.5, **allocations[allocation]),
+            policy_args = {'size': spec.get('holdings', 40), 'max_weight': spec.get('max_weight', .05),
+                           'holding_buffer': spec.get('holding_buffer', 1.5), **allocations[allocation]}
+            plans.append((name, allocation, Policy(name, cost_bps=cost, initial_cash=capital, **policy_args),
                           np.where(mask[None, :], scores[name], np.nan)))
         baseline = None
         for name, allocation, policy, score in plans:
@@ -176,6 +185,7 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
             comparison = paired_comparison(result, baseline)
             metric = result['metrics']
             row = {'model': name, 'allocation': allocation, 'cohort': cohort, 'cost': cost, 'horizon': 20,
+                   'initial_cash': policy.initial_cash, 'holdings': policy.size,
                    'year': f"{min(spec['test_years'])}-{max(spec['test_years'])}", 'net_return': metric['net_return'], 'net_cagr': metric['cagr'],
                    'maximum_drawdown': metric['maximum_drawdown'], 'period_win_rate': metric['period_win_rate'],
                    'closed_trade_win_rate': metric['closed_trade_win_rate'], 'closed_trades': metric['closed_trade_count'],
@@ -199,6 +209,7 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
                 indices = np.flatnonzero(np.char.startswith(np.asarray(result['dates']), year))
                 nav = np.asarray(result['nav'])[np.r_[indices[0], indices+1]]
                 annual.append({'model': name, 'allocation': allocation, 'cohort': cohort, 'cost': cost,
+                               'initial_cash': policy.initial_cash, 'holdings': policy.size,
                                'year': year, 'horizon': 20, 'net_return': value['return'],
                                'maximum_drawdown': float(-np.min(nav / np.maximum.accumulate(nav)-1)),
                                'sessions': value['sessions'], 'is_partial_year': year not in complete_years,
@@ -224,9 +235,10 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
     dump(out / 'EXPERIMENT_CONTRACT.json', {
         'contract_version': '1', 'gate_status': 'research_only_execution_and_independent_history_gaps',
         'result_artifacts': {name: checksum(out/name) for name in ('COSTED_RESULTS.csv', 'YEARLY_RESULTS.csv')},
-        'metric_units': {key: 'fraction' for key in ('net_return', 'net_cagr', 'maximum_drawdown', 'period_win_rate',
+        'metric_units': {**{key: 'fraction' for key in ('net_return', 'net_cagr', 'maximum_drawdown', 'period_win_rate',
                                                      'closed_trade_win_rate', 'cagr_excess', 'win_rate_difference')},
-        'comparison_dimensions': ['model', 'allocation', 'cohort', 'cost', 'year'],
+                         'initial_cash': 'CNY', 'holdings': 'securities', 'cost': 'bps_per_side'},
+        'comparison_dimensions': ['model', 'allocation', 'cohort', 'cost', 'year', 'initial_cash', 'holdings'],
         'methodology_notes': [spec['accounting'], spec['scope'], 'Cost is basis points on each side.',
                               f"{len(spec['models']) * len(allocations)} fixed candidates plus two benchmarks; all results retained.",
                               'Numerical target pass does not resolve execution/source quality.'],

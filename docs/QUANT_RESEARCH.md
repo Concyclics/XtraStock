@@ -28,7 +28,9 @@ Versions are append-only. `registered_at` controls the knowledge cutoff; a sourc
 publication year does not mean the local Agent knew it at that date. The Agent's
 `finance_research_intelligence` supports `scope=methods` and an optional literal
 `method_query`. `scope=experiments` retrieves local result rows with explicit units,
-methodology and filters for model, allocation, cohort, cost, horizon and year.
+methodology and filters for model, allocation, cohort, cost, horizon, year,
+`initial_cash` (CNY) and requested `holdings`. Compare results at matched capital;
+different account sizes can have different rounding and liquidity constraints.
 Methods and offline results do not become approved forecasts merely by entering SQL.
 
 Use `research_asset_registry.py --project PROJECT_NAME` to register one completed
@@ -58,8 +60,8 @@ python apps/finagent/scripts/analytics/verify_quant_cycle.py \
   --report .local/research/tree-verification.json
 ```
 
-The current runners evaluate fixed 2022–2025 folds on supplied immutable panels.
-They do not silently extend those results to 2026. Input dates, securities and
+The runners derive evaluation folds from the supplied immutable panel's calendar.
+Existing archives retain their original windows. Input dates, securities and
 forecast dimensions must agree. A new period or policy requires a new protocol
 and output directory; completed outputs cannot be resumed or overwritten.
 When a panel manifest declares `primary_since`, older rows may initialize rolling
@@ -95,6 +97,35 @@ at each risk decision; unavailable history produces no new target exposure.
 The existing market-volatility estimator remains available as a comparison.
 Unfilled orders can make actual holdings differ from the planned risk budget.
 
+### Fixed-prediction portfolio comparisons
+
+`config/research/portfolio.json` declares capital levels, membership scopes and
+allocation policies. `run_portfolio_cycle.py` reuses a completed tree cycle's
+predictions and training records. It compares 40/100/200 holdings, equal and
+inverse-volatility weights, and market/basket risk estimates without refitting
+the model. Each capital level gets same-capital benchmarks; `all` includes the
+full frozen universe and is an operational projection, not a new holdout.
+
+```bash
+python apps/finagent/scripts/analytics/run_portfolio_cycle.py \
+  --dataset .local/research/market \
+  --reference-experiment .local/research/tree-cycle \
+  --capital 1000000 \
+  --output .local/research/portfolio-1000000
+python apps/finagent/scripts/analytics/verify_quant_cycle.py \
+  --experiment .local/research/portfolio-1000000 \
+  --report .local/research/portfolio-1000000-verification.json
+```
+
+Run the second declared capital in a different output directory. A study must
+retain every declared configuration, including failed or unprofitable ones.
+The independent verifier checks actual starting cash, policy cost, requested
+holdings and selected-symbol membership, as well as returns and frozen source
+records. The broad equal-weight benchmark uses fractional shares as an index
+reference; model accounts retain round-lot constraints. More holdings, lower
+capital or a more complex risk estimator need measured benefits under the same
+costs; none implies better returns by itself.
+
 Opening orders use only prior-session liquidity and an observed open. The
 reported same-day capacity breaches are unresolved execution errors, not proven
 auction fills. Current security-master flags, historical trading states and
@@ -125,4 +156,5 @@ Primary references: [Gu, Kelly and Xiu](https://www.nber.org/papers/w25398),
 [Moreira and Muir](https://www.nber.org/papers/w22208),
 [trading-cost research](https://www.aqr.com/insights/research/working-paper/trading-costs-of-asset-pricing-anomalies),
 [Qlib source](https://github.com/microsoft/qlib/blob/main/qlib/contrib/data/loader.py),
+[equal-weight portfolio comparison](https://doi.org/10.1093/rfs/hhm075),
 and [selection-bias research](https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf).

@@ -1,0 +1,22 @@
+{
+  "version": "fixed-score-portfolio-v1",
+  "capital_levels": [1000000, 10000000],
+  "models": ["ridge_price_reference", "tree_blend"],
+  "cohorts": ["all", "discovery", "cross_section_reserve"],
+  "allocations": {
+    "k40_equal": {"size": 40},
+    "k100_equal": {"size": 100},
+    "k200_equal": {"size": 200},
+    "k100_inverse": {"size": 100, "weighting": "inverse_volatility"},
+    "k100_market_risk": {
+      "size": 100, "weighting": "inverse_volatility", "target_vol": 0.18,
+      "regime": "lagged_market_trend", "exposure_floor": 0.35, "risk_rebalance": 5
+    },
+    "k100_portfolio_risk": {
+      "size": 100, "weighting": "inverse_volatility", "target_vol": 0.18,
+      "regime": "lagged_market_trend", "exposure_floor": 0.35, "risk_rebalance": 5,
+      "vol_estimator": "portfolio"
+    }
+  },
+  "selection": "Predeclare both capitals, all constructions and all costs; retain every result. No automatic strategy promotion."
+}
