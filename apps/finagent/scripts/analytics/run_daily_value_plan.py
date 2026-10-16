@@ -1,7 +1,7 @@
-"""Build a frozen, append-only plan after the published daily report.
+"""Build a frozen, append-only plan for the daily investment report.
 
 Default execution prints a dry-run summary. --apply writes only the paper-plan
-ledger. Delivery is separately gated and runs after successful QQ report delivery.
+ledger. The controller prepares it before narrative generation; delivery stays gated.
 """
 from __future__ import annotations
 import argparse
@@ -128,7 +128,7 @@ def run(conn,report_date,cutoff,config,apply=False,require_report=True):
     approved,validation=publication_approval(config,cutoff)
     report=conn.execute('''SELECT report_run_id,completed_at,status FROM agent.report_runs
       WHERE report_date=%s AND report_type='ai_hardware_daily_v3' AND status IN('published','degraded')
-      AND completed_at<=%s ORDER BY completed_at DESC LIMIT 1''',(report_date,cutoff)).fetchone()
+      AND completed_at<=%s ORDER BY completed_at DESC LIMIT 1''',(report_date,cutoff)).fetchone() if require_report else None
     if require_report and not report:raise ValueError('no successfully published report before plan cutoff')
     if approved and report and report['status']!='published':raise ValueError('recommendations require a fully validated report')
     rows,sessions,market_date,coverage=load_inputs(conn,cutoff,config)
@@ -150,7 +150,7 @@ def run(conn,report_date,cutoff,config,apply=False,require_report=True):
     source_digest=digest(rows);run_id=digest([VERSION,str(report_date),source_digest,str(cutoff),digest(config)])
     summary={**coverage,'plans':len(plans),'changes':sum(p['change']!='retained' for p in plans),
         'actionable_buys':sum(p['state']=='eligible_to_buy' for p in plans),'approved':approved,
-        'report_status':report['status'] if report else 'offline_test'}
+        'report_status':report['status'] if report else 'prepared_for_report' if apply else 'offline_test'}
     if apply:
         conn.execute('''INSERT INTO quant.daily_plan_runs(run_id,strategy_version,report_date,decision_at,evidence_cutoff,
           market_date,report_run_id,mode,config_digest,source_digest,validation,summary)
@@ -167,14 +167,16 @@ def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--date');p.add_argument('--config',type=Path)
     p.add_argument('--apply',action='store_true');p.add_argument('--output',type=Path)
     p.add_argument('--without-report',action='store_true',help='Offline acceptance only; cannot write a run.')
+    p.add_argument('--prepare-for-report',action='store_true',help='Freeze the plan before report generation; publication is recorded only after the complete report is delivered.')
     a=p.parse_args();cutoff=stamp(dt.datetime.now(dt.timezone.utc));day=dt.date.fromisoformat(a.date) if a.date else cutoff.date()
     if day!=cutoff.date() and a.apply:raise SystemExit('Cannot backdate live plan generation')
-    if a.apply and a.without_report:raise SystemExit('A live ledger run requires its published report')
+    if a.apply and a.without_report:raise SystemExit('Use --prepare-for-report to freeze a live plan before the report')
+    if a.prepare_for_report and a.without_report:raise SystemExit('Choose either live preparation or offline acceptance')
     with connect(autocommit=False) as conn:
         conn.execute("SET LOCAL statement_timeout='120s'");conn.execute("SET LOCAL lock_timeout='3s'")
         if a.apply:conn.execute('SELECT pg_advisory_xact_lock(704201611)')
         else:conn.execute('SET TRANSACTION READ ONLY')
-        result=run(conn,day,cutoff,load_config(a.config),a.apply,not a.without_report)
+        result=run(conn,day,cutoff,load_config(a.config),a.apply,not (a.without_report or a.prepare_for_report))
     if a.output:a.output.write_text(json.dumps(result,ensure_ascii=False,indent=2,default=str)+'\n')
     print(json.dumps({k:v for k,v in result.items() if k in ('status','run_id','summary','validation')},ensure_ascii=False,default=str))
     return 0

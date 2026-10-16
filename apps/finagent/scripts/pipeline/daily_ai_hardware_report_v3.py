@@ -17,7 +17,7 @@ import subprocess
 import textwrap
 import uuid
 from collections import defaultdict
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,8 @@ from common import ROOT, TZ, connect, today
 from data_freshness_v3 import freshness_issue
 from openai_compatible_client import complete as openai_compatible_complete
 from daily_llm_payload import compact_v3_snapshot, inline_json
+from daily_investment_advice import (READER_CONTRACT, reader_claim_error, model_snapshot,
+    load_plan_snapshot, build_actions, render_actions)
 from market_daily_inputs import load_config as market_config, load_valuation_screen, load_sector_attention, report_watchlist, enrich_financials, selection_receipt
 from user_presentation import publish_readable_report, READER_STYLE_PROMPT, strip_boilerplate
 from report_capabilities import analysis_capabilities, usable_evidence, source_digest, has_actionable_recommendation, claim_evidence_error, evidence_numeric_projection
@@ -52,6 +54,7 @@ REQUIRED_DATASETS = (
 )
 SECTIONS = (
     "今日核心判断",
+    "每日操作清单",
     "市场概览",
     "低估候选与估值观察",
     "今日新增新闻与催化",
@@ -63,7 +66,6 @@ SECTIONS = (
     "关键证据",
     "今日投资建议",
     "明日跟踪点",
-    "数据质量与限制",
 )
 SECTION_ALIASES = {
     "主题热度变化": "市场热点分析",
@@ -176,6 +178,7 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
             intelligence = load_intelligence(conn, cutoff, as_of=report_date, limit=20, scope='pool')
             valuation, coverage = load_valuation_screen(conn, cutoff, market_date, cfg)
             sectors = load_sector_attention(conn, cutoff, report_date, cfg)
+            plan_snapshot = load_plan_snapshot(conn, report_date, cutoff, market_date)
     pool = (intelligence.get('candidate_pool') or {}).get('rows', [])
     watchlist = report_watchlist(valuation, pool, sectors, cfg)
     with connect() as conn:
@@ -189,6 +192,8 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
     evidence: list[dict[str, Any]] = []
     selected_codes = {r['stock_code'] for r in watchlist}
     for index,row in enumerate(intelligence_rows(intelligence),1):
+        if row.get('component') == 'candidate_pool_trade_plan':
+            continue  # The complete same-day ledger is bound below, including removals.
         if row.get('component') == 'candidate_pool' and row.get('stock_code') not in selected_codes:
             continue
         is_pool=row.get('component','').startswith('candidate_pool')
@@ -408,6 +413,14 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
         },
     }
 
+    for index, plan in enumerate(plan_snapshot.get('plans', []), 1001):
+        evidence.append(evidence_item('CAND', index, 'interpretation', {
+            'entity_id': plan['stock_code'], 'metric_id': 'daily_value_plan',
+            'value': {**plan, 'component': 'candidate_pool_trade_plan', 'plan_date': str(report_date),
+                      'mode': plan_snapshot.get('mode'), 'actionable': plan_snapshot.get('actionable', False)},
+            'as_of_date': plan_snapshot.get('market_date'), 'available_at': plan_snapshot.get('decision_at'),
+            'source_id': 'quant.daily_plan_revisions', 'quality_status': 'unverified'}))
+    result['investment_advice'] = build_actions(result, plan_snapshot)
     result["analysis_capabilities"] = analysis_capabilities(result)
     return result
 
@@ -427,45 +440,30 @@ def degraded_claims(snapshot: dict[str, Any], reason: str | None = None) -> list
 
 
 def build_prompt(snapshot_path: Path, claims_path: Path) -> str:
-    allowed_sections = json.dumps(SECTIONS, ensure_ascii=False)
+    allowed_sections = json.dumps([s for s in SECTIONS if s != '每日操作清单'], ensure_ascii=False)
     return textwrap.dedent(f"""
-        你是覆盖全A股市场的金融研究日报编辑，围绕低估候选和市场热点解释已计算证据。读取 `{snapshot_path}`，只输出结构化 claims。
-
-        将 JSON 写入 `{claims_path}`，顶层格式严格为：
+        你是全A股每日投资建议的研究编辑，围绕候选股票、估值和热点给出具体判断。读取 `{snapshot_path}`。
+        将 JSON 写入 `{claims_path}`，只返回：
         {{"claims":[{{"claim_id":"C001","section_name":"今日核心判断","claim_type":"interpretation",
         "claim_text":"...","evidence_ids":["DOC0001"],"numeric_value":null,"unit":null,
         "as_of_date":"YYYY-MM-DD","metadata":{{"recommendation":false}}}}]}}
 
-        规则：
-        - 只生成一份完整日报，不生成“省流版”或重复摘要。开篇核心判断控制在两到三点，后文展开依据。
-        - 核心判断先交代最值得研究的行业、候选和依据，不用通过率、系统覆盖数量或缺口清单代替投资研究结论。覆盖数量放在市场概览，实际影响判断的数据缺口集中说明。
-        - 先解释市场概览，再结合新闻、行业关注、图谱和财务分析热点及估值候选；覆盖多个行业，由证据重要性决定篇幅，不以AI硬件为默认主线。
-        - market_coverage 是本库覆盖范围，不能称为全市场上涨家数或指数走势。sector_research_attention 是近期研报关注度，结合新闻判断催化；不能写成资金净流入、市场涨幅或全网热点排名。
-        - valuation_screen 用于“低估候选与估值观察”：至少分析两家公司并解释预测财年、机构数、预测市盈率、财务支撑和验证条件。只有 supported_discount=true 才能称有依据的同业折价；否则给出估值观察和具体缺口。低PE本身不证明低估，金融股不用普通行业PE估值。peer_discount_percent 不是未来涨幅。
-        - section_name 只能从以下列表原样选择，不得自创章节名：{allowed_sections}
-        - 依据 analysis_capabilities 分别判断能力；hard_gate_passed=false 仅限制买卖建议，不禁止对已收录新闻、财务事实、行情和关联作有证据的研究分析。
-        - 门禁未通过时仍完成来源摘要、重要变化、相互支持或矛盾的证据、条件化解释和下一步跟踪问题；不要把整份日报写成系统故障说明。只在“数据质量与限制”简述与本期结论有关的缺口。
-        - analysis_capabilities.stock_recommendations=false 时不生成“今日投资建议”章节或买卖操作指令，metadata.recommendation 必须为 false。研究关注不等同推荐买入。
-        - candidate_pool 证据用于“长期候选池更新”：说明池规模和变化；有成员证据时至少选两家公司，分别解释新增、保留或淘汰原因、长期财务论点、短期趋势分和月度复核日期。没有成员变化也要解释保留依据，不能只报池规模。5/20日预测仅引用已提供的数值和到期日；排序分不是收益率。本期研究选题与长期候选池成员资格分开说明，同一公司避免在多个章节重复叙述。
-        - candidate_pool_trade_plan 是独立的交易计划账本。核对 plan_date、mode 与 available_at：模拟观察只解释估值、盈利预测和变更依据；同业估值情景不能写成预期涨幅、买入指令或必达日期。买入上限只引用已通过验收且尚未过期的 entry_limit；未知持仓成本时不计算回本价。候选移除不代表已有持仓已卖出。当天账本在日报完成后生成，日报可引用最近已冻结记录并标明日期。
-        - research_focus 证据用于“研究关注更新”和“明日跟踪点”：解释新增/修订资料、可检验的问题以及何时复核。
-        - “个股观察池”只使用本期冻结的 shared_research.watchlist / frozen_research_watchlist，结合 valuation_screen 分析；这些跨行业研究选题不自动成为长期候选池或交易持仓。“长期候选池更新”使用 candidate_pool 成员证据，解释保留、调整或退出原因，不另造成员。
-        - 仅 prediction_eligible=true 的情景可给出数值预测；缺失或未通过验证时省略数值预测栏目，不插入重复的“暂不提供”占位。确实影响本期结论的模型误差或输入缺口在数据说明中说一次。券商目标价单列来源和期限。
-        - candidate_pool_summary.forecast_validation 提供周/月预测的真实回测误差、基线、区间覆盖率、滚动胜出次数和差值置信区间。差值区间跨零不能称为预测能力已提升，覆盖率不能称为上涨概率。用本期已核实的走势、财务和事件解释方向驱动、观察期限及验证/失效条件；不因模型未通过而省略公司分析，不把候选分数换成预期收益或目标价。
-        - 模型误差和误差差值保留3位小数，覆盖率保留2位；只展示影响判断的比较结果，不抄写长小数或整份验证记录。
-        - 若同时引用整体平均误差和配对误差差值，注明后者按信号日等权，不能写成前两个样本均值直接相减；也可以只报差值置信区间是否跨零。
-        - 只能引用 snapshot.evidence 中存在的 evidence_id，每个事实句必须绑定证据。
-        - claim_text 面向普通读者，用中文解释来源、数据日期和可靠性；不要堆砌数据库字段名、内部编号或状态码。shadow 可称“研究阶段因子”；同源价格和验证状态的共同限制集中说明一次，不逐股重复；evidence_ids 仍须保留准确编号供核验。
-        - 不自行计算涨跌幅、排名、估值或统计；不得生成证据中没有的数字、日期、股票代码。
-        - actual、forecast、market、model_signal、document_claim、graph_association 必须严格区分。
-        - 因子 percentile 不是上涨概率；candidate/shadow/degraded 都不能写成生产信号。
-        - 图谱路径只表示关联，不能写成因果；仅 observed_fact 可称已核验事实。
-        - 当日证据优先于历史证据，滞后信息必须披露具体日期。
-        - 估值观察应结合 reported_financials / actual_financials 和 financial_ratios 中的正式披露，区别实际业绩与机构预测；不得把已提供财务明细的公司写成“缺少实际财务”。只写影响本期候选或行业判断的新闻，缺少可检验市场联系的泛化故事不凑章节。
-        - 个股观察必须同时引用市场证据和至少一条文档/正式披露证据。
+        {READER_CONTRACT}
         {READER_STYLE_PROMPT}
-        - 共同数据口径与实质缺口集中在“数据质量与限制”用1-2条说明；该栏目没有实质内容时省略。不要把无关公司章程等材料凑成市场催化，也不要为凑章节讨论不存在的结论。
-        - 生成 12-30 条简短 claim，覆盖主要章节。不要输出 Markdown，不要修改数据库或源码。
+        - 只生成一份完整日报，不生成“省流版”。允许章节：{allowed_sections}。没有内容的章节直接省略。
+        - 开篇两到三条核心判断：今天重点关注什么、为什么、什么变化会改变判断。每家公司集中解释，避免多章重复。
+        - 市场概览有可用指数/涨跌统计时引用；否则用真实行业事件概括当日主线，不罗列数据库覆盖数或解释未提供哪些统计。
+        - valuation_screen 至少选择两家公司，交代预测财年、机构数、预测PE和实际财务支撑。supported_discount=true 才能称已确认同业折价；否则直接使用“估值观察”，不附核验失败说明。同业折价不是未来涨幅，金融业使用专用估值思路。
+        - 价格保留两位小数，PE与百分比保留两至三位；EPS允许来源原有精度。只做显示舍入，不自行推导新估值或收益。
+        - sector_research_attention 衡量已收录研报关注度，不是资金流入或涨幅。结合新闻、公告、财务和图谱说明哪些公司受益、传导路径及后续触发事件。
+        - candidate_pool 用于长期候选池更新，至少两家公司说明新增、保留或移出原因，以及业务论点和下一次复核日期。不把研究分数换成上涨概率或收益率。
+        - “个股观察池”仅使用 frozen_research_watchlist 成员，结合实际财务和估值解释重点关注的理由。候选入池/移除与持仓买入/卖出分别处理。
+        - 当天交易计划已在日报前冻结；每日操作清单由程序从该账本直接生成。不要生成“今日投资建议”买卖指令段，不复述计划的数据复核队列，不自行发明价格、成本或成交。
+        - 仅 prediction_eligible=true 的情景可引用数值预测；其余省略数值预测栏目。用盈利驱动、催化、观察期限和失效条件完成分析。券商目标价必须注明机构、日期和期限。
+        - claim_text 只引用 evidence 中真实存在的 evidence_id；数字、日期和证券必须有对应依据。历史财务注明报告期，机构盈利预测和正式实际业绩分别陈述。
+        - actual、forecast、market、model_signal、document_claim、graph_association 严格区分；图谱关联不自动代表因果，因子分数不代表收益。
+        - 选题面向全市场，新闻和公告优先说明对候选公司的经营影响；无实质联系的会议、章程和泛化故事不凑篇幅。
+        - 输出 12-26 条简短 claim，不输出 Markdown、思考过程或内部诊断。
     """).strip() + "\n"
 
 
@@ -510,7 +508,7 @@ def run_openai_compatible(
     reasoning_effort: str,
 ) -> Path:
     output = run_dir / "provider_last_message.txt"
-    inline_snapshot = inline_json(compact_v3_snapshot(snapshot), max_chars=100_000)
+    inline_snapshot = inline_json(compact_v3_snapshot(model_snapshot(snapshot)), max_chars=100_000)
     remote_prompt = prompt + """
 
 当前后端不能读取本地路径。以下 inline_snapshot 是本次不可变数据快照的完整、
@@ -556,13 +554,13 @@ def repair_openai_compatible_claims(
 ) -> Path:
     output = run_dir / "provider_repair_message.txt"
     repair_input = {
-        "snapshot": compact_v3_snapshot(snapshot),
+        "snapshot": compact_v3_snapshot(model_snapshot(snapshot)),
         "rejected_claims": claims,
         "validation_errors": errors,
         "allowed_sections": SECTIONS,
         "allowed_claim_types": sorted(CLAIM_TYPES),
     }
-    prompt = READER_STYLE_PROMPT + "\n" + """
+    prompt = READER_CONTRACT + "\n" + READER_STYLE_PROMPT + "\n" + """
 修复下面的日报 claims，只返回 {"claims":[...]} JSON。保留有证据的结论，删除或改写校验失败的内容。
 section_name 和 claim_type 只能使用允许值；每条必须引用真实 evidence_id；不得新增证据中没有的数字、日期或股票代码。
 不要输出思考过程、Markdown 或其他文字。
@@ -640,6 +638,7 @@ def date_tokens(value: Any) -> set[str]:
         # of their years and month/day components.
         period_end=str(value.get('period_end') or '')
         if re.fullmatch(r'\d{4}-06-30',period_end):dates.add(period_end[:4]+'-H1')
+        if re.fullmatch(r'\d{4}-03-31',period_end):dates.add(period_end[:4]+'-Q1')
     elif isinstance(value, list):
         for item in value:
             dates.update(date_tokens(item))
@@ -676,6 +675,51 @@ def normalized_numeric_token(token: str) -> str:
     return format(value.normalize(), "f")
 
 
+def supported_display_number(token, allowed):
+    """Allow explicit decimal display rounding, never scale or change sign."""
+    normalized = normalized_numeric_token(token)
+    if normalized in allowed:
+        return True
+    raw = token.rstrip('%')
+    if not re.fullmatch(r'-?\d+\.\d{2,3}', raw):
+        return False
+    precision = Decimal('1').scaleb(-len(raw.split('.')[1]))
+    for value in allowed:
+        if '.' not in value or len(value.split('.')[1]) <= -precision.as_tuple().exponent:
+            continue
+        try:
+            if Decimal(value).quantize(precision, rounding=ROUND_HALF_UP) == Decimal(raw):
+                return True
+        except InvalidOperation:
+            continue
+    return False
+
+
+def strip_supported_amounts(text, evidence):
+    """Verify explicit 元→万元/亿元 display conversions against CNY facts only."""
+    amounts = []
+    def collect(value):
+        if isinstance(value, dict):
+            if value.get('unit') in ('CNY', '元') and value.get('value') is not None:
+                try:
+                    number = Decimal(str(value['value']))
+                    if number.is_finite():
+                        amounts.append(number)
+                except InvalidOperation:
+                    pass
+            for item in value.values():
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+    collect(evidence)
+    def replace(match):
+        number, unit = match.groups()
+        allowed = {normalized_numeric_token(str(a / (10_000 if unit == '万元' else 100_000_000))) for a in amounts}
+        return unit if supported_display_number(number, allowed) else match.group(0)
+    return re.sub(r'(?<![\d.])(-?\d+(?:\.\d+)?)\s*(万元|亿元)', replace, text)
+
+
 def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
     import sys
     if str(ROOT/'MMClaw') not in sys.path: sys.path.insert(0,str(ROOT/'MMClaw'))
@@ -695,6 +739,12 @@ def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> t
         claim_id = str(claim.get("claim_id") or f"C{index:03d}")
         claim["claim_id"] = claim_id
         claim_errors: list[str] = []
+        if snapshot.get("report_scope") == "all_a_share":
+            editorial_error = reader_claim_error(claim)
+            if editorial_error:
+                claim_errors.append(editorial_error)
+            if claim.get("section_name") == "每日操作清单":
+                claim_errors.append("action_section_is_rendered_from_ledger")
         if not strip_boilerplate(str(claim.get("claim_text") or "")).strip():
             claim_errors.append("empty_or_boilerplate_only_claim")
         if claim_id in seen:
@@ -704,7 +754,7 @@ def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> t
         if section_name in SECTION_ALIASES:
             section_name = SECTION_ALIASES[section_name]
             claim["section_name"] = section_name
-        if section_name not in SECTIONS:
+        if section_name not in SECTIONS and not (section_name == "数据质量与限制" and snapshot.get("report_scope") != "all_a_share"):
             claim_errors.append("invalid section_name")
         if claim.get("claim_type") not in CLAIM_TYPES:
             claim_errors.append("invalid claim_type")
@@ -747,12 +797,13 @@ def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> t
         # A stated decline is a negative change; never accept an unsupported
         # positive increase by discarding the sign of the cited source.
         numeric_text = DECLINE_PERCENT_RE.sub(lambda m:m.group(1)+'-'+m.group(2),numeric_text)
+        numeric_text = strip_supported_amounts(numeric_text, selected)
         allowed_numbers = {
             normalized_numeric_token(token) for token in allowed if NUMERIC_RE.fullmatch(token)
         }
         unsupported_numbers = sorted({
             token for token in NUMERIC_RE.findall(numeric_text)
-            if normalized_numeric_token(token) not in allowed_numbers
+            if not supported_display_number(token, allowed_numbers)
         })
         if unsupported_numbers:
             claim_errors.append("unsupported numbers: " + ",".join(unsupported_numbers))
@@ -770,18 +821,22 @@ def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> t
 
 
 def render_report(report_date: dt.date, cutoff: dt.datetime, market_date: dt.date | None,
-                  claims: list[dict[str, Any]], status: str, blockers: list[str]) -> str:
+                  claims: list[dict[str, Any]], status: str, blockers: list[str], advice=None) -> str:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for claim in claims:
-        if claim.get("validation_status") == "verified":
+        if claim.get("validation_status") == "verified" and not reader_claim_error(claim):
             grouped[claim["section_name"]].append(claim)
     lines = [
-        f"# 全市场盘前日报 {report_date.isoformat()}", "",
-        f"- 报告状态：{status}",
-        f"- 决策知识截止：{cutoff.isoformat()}",
+        f"# 全市场每日投资建议 {report_date.isoformat()}", "",
+        f"- 信息截止：{cutoff.astimezone(TZ).strftime('%Y-%m-%d %H:%M')}（北京时间）",
         f"- 行情基准日：{market_date.isoformat() if market_date else '无可用交易日'}", "",
     ]
     for section in SECTIONS:
+        if section == '每日操作清单':
+            action_text = render_actions(advice or {})
+            if action_text:
+                lines.extend(['## 每日操作清单', '', action_text, ''])
+            continue
         section_claims = grouped.get(section, [])
         if not section_claims:
             continue
@@ -790,8 +845,6 @@ def render_report(report_date: dt.date, cutoff: dt.datetime, market_date: dt.dat
             refs = ", ".join(claim["evidence_ids"])
             lines.append(f"- {claim['claim_text']} [evidence: {refs}]")
         lines.append("")
-    if blockers:
-        lines.extend(["### 硬门禁阻断项", "", *[f"- `{item}`" for item in blockers], ""])
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -835,7 +888,10 @@ def generate_report_claims(snapshot, snapshot_json, run_dir, args):
     else:
         try:
             claims_target = run_dir / "report_claims.json"
-            prompt = build_prompt(run_dir / "data_snapshot.json", claims_target)
+            editorial_path = run_dir / "editorial_snapshot.json"
+            editorial_path.write_text(json.dumps(model_snapshot(snapshot_json), ensure_ascii=False,
+                                                indent=2, default=json_default) + "\n", encoding="utf-8")
+            prompt = build_prompt(editorial_path, claims_target)
             (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
             if args.provider == "codex":
                 output = run_codex(run_dir, prompt, args.model, args.timeout, args.reasoning_effort)
@@ -876,7 +932,7 @@ def generate_report_claims(snapshot, snapshot_json, run_dir, args):
     substantive = [c for c in verified if c.get('claim_type') != 'data_quality']
     if not verified:
         status = 'quarantined'
-    elif generation_mode == 'source_digest' or final_errors or not snapshot['hard_gate_passed']:
+    elif generation_mode == 'source_digest' or final_errors or (not snapshot['hard_gate_passed'] and snapshot.get('report_scope') != 'all_a_share'):
         status = 'degraded'
     elif substantive:
         status = 'published'
@@ -928,11 +984,11 @@ def main() -> int:
 
     persist_claims(run_id, claims)
     report_text = render_report(
-        report_date, cutoff, snapshot["market_date"], claims, status, snapshot["hard_gate_blockers"],
+        report_date, cutoff, snapshot["market_date"], claims, status, snapshot["hard_gate_blockers"], snapshot.get("investment_advice"),
     )
     run_report = run_dir / "report.md"
     run_report.write_text(report_text, encoding="utf-8")
-    output_dir = DAILY_DIR if args.publish and status in {"published", "degraded"} else SHADOW_DIR
+    output_dir = DAILY_DIR if args.publish and status == "published" else SHADOW_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{report_date.isoformat()}.md"
     publish_readable_report(run_report, output_path, snapshot_path)
@@ -944,6 +1000,11 @@ def main() -> int:
         "generation_mode": generation_mode, "analysis_capabilities": snapshot.get("analysis_capabilities"),
         "unresolved_errors": [f"{c.get('claim_id')}: {c.get('validation_error')}" for c in claims if c.get('validation_status')=='rejected'],
         "status": status,
+        "integrated_advice": {k:v for k,v in snapshot.get('investment_advice', {}).items()
+                              if k not in ('source_plan', 'actions')},
+        "reader_diagnostics": {'hard_gate_blockers': snapshot['hard_gate_blockers'],
+                               'forecast_validation': [e['value'].get('forecast_validation') for e in snapshot['evidence']
+                                   if isinstance(e.get('value'),dict) and e['value'].get('component')=='candidate_pool_summary']},
         "model": args.model, "reasoning_effort": args.reasoning_effort, "provider": args.provider,
     }
     (run_dir / "validation.json").write_text(
@@ -957,6 +1018,12 @@ def main() -> int:
             """,
             (status, Jsonb(validation), str(output_path), run_id),
         )
+    delivery_receipt = {'format': 'integrated-daily-advice-v1', 'report_run_id': str(run_id),
+                        'report_date': report_date.isoformat(), 'shadow': not args.publish or output_dir == SHADOW_DIR,
+                        'report_sha256': hashlib.sha256(output_path.read_bytes()).hexdigest(),
+                        'plan_run_id': snapshot.get('investment_advice', {}).get('plan_run_id'),
+                        'published_plan_ids': snapshot.get('investment_advice', {}).get('published_plan_ids', [])}
+    output_path.with_suffix('.delivery.json').write_text(json.dumps(delivery_receipt, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps({"report_run_id": str(run_id), "status": status, "output_path": str(output_path), **validation}, ensure_ascii=False))
     return 0 if status in {"published", "degraded"} else 2
 

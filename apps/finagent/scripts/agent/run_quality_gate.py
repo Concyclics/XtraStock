@@ -42,7 +42,7 @@ def isolated_commands(commands):
 
 COMMANDS = isolated_commands(GROUPED_COMMANDS)
 for module in (
-    'test_market_daily','test_daily_candidate_payload','test_finance_agent_v3_runtime',
+    'test_market_daily','test_integrated_daily_advice','test_daily_candidate_payload','test_finance_agent_v3_runtime',
     'test_daily_value_plan','test_value_limit_replay','test_value_plan_delivery','test_value_plan_settlement',
     'test_data_registry_alignment','test_research_asset_registry','test_incremental_import',
     'test_report_body_import','test_report_body_recovery','test_forecast_semantics',

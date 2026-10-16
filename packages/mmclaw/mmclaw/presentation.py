@@ -236,6 +236,7 @@ def render_finance_text(text, evidence=None, *, catalog=None):
     text = re.sub(r"(?:\[来源\d+\][、,， ]*){2,}",
                   lambda m: "".join(dict.fromkeys(re.findall(r"\[来源\d+\]", m.group(0)))), text)
     text = _readable(text)
+    text = readable_amounts(text)
     text = text.replace("巨潮资讯（公司公告），即巨潮资讯（公司公告）", "巨潮资讯（公司公告）")
     text = text.replace("研究报告中的研报观点", "研报观点")
     text = text.replace("使用范围为研究阶段", "研究阶段")
@@ -257,6 +258,18 @@ def render_finance_text(text, evidence=None, *, catalog=None):
     return text
 
 
+def readable_amounts(text):
+    """Display large CNY amounts in 亿元; originals remain in the evidence ledger."""
+    from decimal import Decimal, ROUND_HALF_UP
+    def replace(match):
+        value = Decimal(match.group(1).replace(',', ''))
+        if abs(value) < 100_000_000:
+            return match.group(0)
+        amount = (value / Decimal(100_000_000)).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
+        return f'{amount}亿元'
+    return re.sub(r'(?<![\d.])(-?\d+(?:,\d{3})*(?:\.\d+)?)\s*元', replace, text)
+
+
 def render_report_file(path):
     """Render old reports on read; canonical files and snapshots stay intact."""
     path = Path(path)
@@ -267,6 +280,20 @@ def render_report_file(path):
         pack = path.parent.parent / "runs" / path.stem / "data_pack.json"
         catalog = source_catalog(json.loads(pack.read_text(encoding="utf-8"))) if pack.exists() else {}
     return render_finance_text(path.read_text(encoding="utf-8"), catalog=catalog)
+
+
+def report_delivery_binding(path):
+    """Bind scheduled delivery to the exact generated report, if versioned."""
+    import hashlib
+    path = Path(path)
+    manifest_path = path.with_suffix('.delivery.json')
+    if not manifest_path.exists():
+        return {}
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    if (manifest.get('format') != 'integrated-daily-advice-v1' or manifest.get('shadow') is not False
+            or manifest.get('report_sha256') != hashlib.sha256(path.read_bytes()).hexdigest()):
+        raise ValueError('daily report manifest does not match publishable content')
+    return {key: manifest[key] for key in ('report_sha256', 'report_run_id')}
 
 
 def publish_readable_report(draft_path, daily_path, data_pack_path):

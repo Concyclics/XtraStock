@@ -23,7 +23,7 @@ from .config import ConfigManager
 from .providers import Engine, prepare_image_content
 from .outbox import OutboxWorker
 from .access_control import AccessController
-from .presentation import render_finance_text, render_report_file
+from .presentation import render_finance_text, render_report_file, report_delivery_binding
 
 
 class TerminalConnector(object):
@@ -2625,7 +2625,8 @@ class QQBotConnector(object):
             from .value_plan_delivery import deliver_after_report
             from .outbox import _connect
             result=deliver_after_report(group_openid,today,delivered['last_sent_path'],delivered['sent_at'],
-                self.send_messages_to_group,_connect,self._log_event)
+                self.send_messages_to_group,_connect,self._log_event,
+                report_sha256=delivered.get('report_sha256'),report_run_id=delivered.get('report_run_id'))
             if result['status'] not in ('disabled','waiting_for_plan','validation_pending','before_enabled_date') and result.get('parts')!=0:
                 self._log_event('daily_value_plan_delivery',result)
         except Exception as exc:
@@ -2641,8 +2642,8 @@ class QQBotConnector(object):
             self._log_event("daily_report_skipped", {"reason": "missing_group_openid", "date": today})
             return
         sent_groups = state.setdefault("sent_groups", {})
-        # A plan can finish after the report. Check this hook on later polls,
-        # including when today's report itself has already been sent.
+        # Retry only the idempotent integrated delivery receipt. The configured
+        # integrated mode never sends a separate candidate-plan message.
         for group_openid in group_openids:
             delivered=sent_groups.get(group_openid,{})
             if delivered.get('last_sent_date')==today:
@@ -2660,7 +2661,11 @@ class QQBotConnector(object):
         if not path:
             self._log_event("daily_report_waiting", {"reason": "missing_report", "date": today, "dir": self._daily_report_dir()})
             return
+        binding = report_delivery_binding(path)
         messages = self._daily_report_messages(path)
+        if report_delivery_binding(path) != binding:
+            self._log_event('daily_report_changed_during_read', {'date': today})
+            return
         for group_openid in group_openids:
             group_state = sent_groups.get(group_openid, {})
             legacy_sent = state.get("last_sent_date") == today and state.get("group_openid") == group_openid
@@ -2680,6 +2685,7 @@ class QQBotConnector(object):
             ok = self.send_messages_to_group(group_openid, messages)
             if ok:
                 sent_groups[group_openid] = {
+                    **binding,
                     "last_sent_date": today,
                     "last_sent_path": path,
                     "sent_at": self._now_iso(),

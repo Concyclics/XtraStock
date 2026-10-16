@@ -1,6 +1,7 @@
 {
   "version": "daily-value-plan-v1",
   "mode": "shadow",
+  "delivery_mode": "integrated",
   "timezone": "Asia/Shanghai",
   "primary_years": 5,
   "forecast_max_age_days": 180,

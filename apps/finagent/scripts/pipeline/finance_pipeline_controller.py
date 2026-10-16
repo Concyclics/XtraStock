@@ -118,7 +118,7 @@ def earnings_observation_commands(run_date: dt.date) -> list[list[str]]:
 
 
 def daily_plan_commands(run_date: dt.date) -> list[list[str]]:
-    return [[sys.executable,'scripts/analytics/run_daily_value_plan.py','--date',run_date.isoformat(),'--apply']]
+    return [[sys.executable,'scripts/analytics/run_daily_value_plan.py','--date',run_date.isoformat(),'--apply','--prepare-for-report']]
 
 
 def market_v2_commands(run_date: dt.date) -> list[list[str]]:
@@ -200,9 +200,9 @@ SHADOW_STAGES = (
         ), external_ready=v3_morning_jobs_idle,
     ),
     Stage("morning_quality_gate", dt.time(8, 47), quality_gate_commands, ("morning_v3_sources",)),
-    Stage("daily_report_v3", dt.time(8, 50), report_command, ("morning_quality_gate",), weekdays_only=True),
+    Stage("daily_value_plan", dt.time(8, 49), daily_plan_commands, ("morning_quality_gate",), weekdays_only=True),
+    Stage("daily_report_v3", dt.time(8, 50), report_command, ("daily_value_plan",), weekdays_only=True),
     Stage("daily_outbox_v3", dt.time(9, 5), outbox_command, ("daily_report_v3",), weekdays_only=True),
-    Stage("daily_value_plan", dt.time(9, 6), daily_plan_commands, ("daily_report_v3",), weekdays_only=True),
     Stage(
         "market_v2_daily", dt.time(17, 10), market_v2_commands,
         weekdays_only=True, external_ready=market_ready,
@@ -233,9 +233,9 @@ ACTIVE_STAGES = (
         date_commands(lambda d:[[sys.executable,"scripts/pipeline/research_intelligence_refresh.py",
             "--date",d.isoformat(),"--scope","focus"]]),("active_news",)),
     Stage("morning_quality_gate", dt.time(8, 47), quality_gate_commands, ("active_news",)),
-    Stage("daily_report_v3", dt.time(8, 50), report_command, ("morning_quality_gate",), weekdays_only=True),
+    Stage("daily_value_plan", dt.time(8, 49), daily_plan_commands, ("morning_quality_gate",), weekdays_only=True),
+    Stage("daily_report_v3", dt.time(8, 50), report_command, ("daily_value_plan",), weekdays_only=True),
     Stage("daily_outbox_v3", dt.time(9, 5), outbox_command, ("daily_report_v3",), weekdays_only=True),
-    Stage("daily_value_plan", dt.time(9, 6), daily_plan_commands, ("daily_report_v3",), weekdays_only=True),
     Stage(
         "active_market_close", dt.time(17, 5),
         date_commands(lambda d: [[sys.executable, "scripts/pipeline/daily_market_close.py", "--workers", "4", "--date", d.isoformat()]]),

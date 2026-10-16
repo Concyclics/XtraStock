@@ -143,7 +143,7 @@ class MarketDailyTests(unittest.TestCase):
         self.assertIn('公司研究档案《示例公司》',render_finance_text('依据。[evidence: POOL0001]',evidence=snap))
         self.assertNotIn('省流版',daily.SECTIONS)
         rendered=daily.render_report(dt.date(2026,10,16),dt.datetime.now(dt.timezone.utc),dt.date(2026,10,15),[], 'published',[])
-        self.assertIn('# 全市场盘前日报',rendered)
+        self.assertIn('# 全市场每日投资建议',rendered)
 
     def test_outbox_only_full_chunks_preserves_existing_dedup_keys(self):
         conn=mock.MagicMock();conn.__enter__.return_value=conn

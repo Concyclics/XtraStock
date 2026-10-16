@@ -130,3 +130,12 @@ permissions, ledger immutability, idempotent repeated runs and source coverage.
 Rollback stops only the three new controller stages and sets plan publication
 to false. Preserve the additive tables, source caches and append-only records.
 Restoring prior application files must not remove saved observations or plans.
+
+
+## 与整份日报合并
+
+控制器通过 `run_daily_value_plan.py --apply --prepare-for-report` 在日报生成前冻结当日计划。
+准备阶段不要求已存在日报，`report_run_id` 可为空；真实绑定记录在日报快照的 `investment_advice` 和同名 `.delivery.json` 文件中，不修改已冻结的账本。
+
+默认 `delivery_mode=integrated`。计划的关注、买入限价、参考组合持有/退出、移出与撤单进入同一份日报；QQ 原投递钩子只记录整份日报的完成回执，不发送第二条计划消息。
+策略验收、配置一致性、启用日期和有效期继续在内部校验。未批准计划不输出买卖指令，资料复核细节留在内部记录。

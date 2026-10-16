@@ -60,7 +60,7 @@ def main() -> int:
             SELECT report_run_id,status,output_path,validation
             FROM agent.report_runs
             WHERE report_type=ANY(%s) AND report_date=%s
-              AND status IN ('published','degraded')
+              AND status='published'
             ORDER BY completed_at DESC LIMIT 1
             """,
             (["ai_hardware_daily_v3", "ai_hardware_daily_v3_shadow"] if args.allow_shadow else ["ai_hardware_daily_v3"], report_date),
