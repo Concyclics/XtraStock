@@ -15,7 +15,7 @@ from .reader_language import strip_boilerplate
 
 UUID = r"[0-9a-fA-F]{8}-(?:[0-9a-fA-F]{4}-){3}[0-9a-fA-F]{8,12}"
 IDENTIFIER = re.compile(rf"(?<![A-Za-z0-9])(?:{UUID}(?::E\d{{4}})?|[0-9a-fA-F]{{32}}:E\d{{4}}|[0-9a-fA-F]{{32,64}})(?![A-Za-z0-9])")
-SHORT_REF = re.compile(r"\b(?:DOC|DQ|MKT|FAC|KG|FIN|EVT|REP|REPORT|NEWS|POOL|FOCUS|CAND)\d{4}\b")
+SHORT_REF = re.compile(r"\b(?:DOC|DQ|MKT|FAC|KG|FIN|EVT|REP|REPORT|NEWS|POOL|FOCUS|CAND|VAL|HOT|COVER)\d{4}\b")
 SOURCE_NAMES = {
     "cninfo_official": "巨潮资讯（公司公告）", "cninfo": "巨潮资讯",
     "xinhua_daily": "新华每日电讯", "peoples_daily": "人民日报",
@@ -117,7 +117,7 @@ def _source_label(item):
     # Clock, lookup and quality-control IDs are not useful reader citations.
     if kind == "data_quality":
         return None
-    if kind == "calculation" and item.get("metric_id") != "finance_market_screen" and not str(item.get("metric_id") or "").startswith("period_return_pct_"):
+    if kind == "calculation" and item.get("metric_id") not in {"finance_market_screen", "market_coverage", "valuation_screen", "sector_research_attention"} and not str(item.get("metric_id") or "").startswith("period_return_pct_"):
         return None
     name = value.get("source_system") or value.get("institution") or item.get("source_id") or value.get("source_name") or ""
     name = str(name)
@@ -132,8 +132,12 @@ def _source_label(item):
         name = "量化研究记录"
     if kind == "calculation":
         name = "行情与估值资料" if item.get("metric_id") == "finance_market_screen" else "行情区间计算"
+        name = {"market_coverage":"A股数据覆盖统计", "valuation_screen":"机构盈利预测与估值筛选",
+                "sector_research_attention":"行业研报关注统计"}.get(item.get("metric_id"),name)
     date = item.get("period_end") or item.get("as_of_date") or value.get("period_end") or value.get("doc_date") or value.get("report_date") or value.get("event_date") or value.get("published_date") or value.get("dt") or value.get("valid_from")
     title = _clean_label(value.get("title") or value.get("report_title"))[:110]
+    if item.get('metric_id') in {'valuation_screen','sector_research_attention'}:
+        title = _clean_label(value.get('name') or value.get('industry'))[:80]
     if item.get('metric_id') == 'research_focus':
         name = '研究关注'
         title = _clean_label(value.get('label'))[:80]
@@ -141,6 +145,12 @@ def _source_label(item):
         name = '模型历史检验与前瞻复盘'
     elif str(item.get('metric_id') or '').startswith('candidate_pool'):
         name = '自动候选池与周期复核记录'
+        title = _clean_label(value.get('name'))[:80]
+    elif item.get('metric_id') == 'frozen_research_watchlist':
+        name = '公司研究档案'
+        title = _clean_label(value.get('name') or (value.get('research') or {}).get('stock_name'))[:80]
+    elif item.get('metric_id') == 'daily_value_plan':
+        name = '候选计划复核记录'
         title = _clean_label(value.get('name'))[:80]
     if not title and kind == "actual":
         title = "公司财务披露"
@@ -217,7 +227,7 @@ def render_finance_text(text, evidence=None, *, catalog=None):
         return "".join(refs)
 
     # Handle grouped V3 report references before replacing standalone UUIDs.
-    text = re.sub(r"\[(?:evidence\s*:\s*)?[^\]\n]*(?:\b(?:DOC|DQ|MKT|FAC|KG|FIN|EVT|REP|REPORT|NEWS|POOL|FOCUS|CAND)\d{4}|:E\d{4})[^\]\n]*\]", citation_group, text)
+    text = re.sub(r"\[(?:evidence\s*:\s*)?[^\]\n]*(?:\b(?:DOC|DQ|MKT|FAC|KG|FIN|EVT|REP|REPORT|NEWS|POOL|FOCUS|CAND|VAL|HOT|COVER)\d{4}|:E\d{4})[^\]\n]*\]", citation_group, text)
     text = IDENTIFIER.sub(lambda m: reference(m.group(0)), text)
     text = re.sub(r"(?<![A-Za-z0-9:])E\d{4}\b", "（出处待核对）", text)
     text = re.sub(r"`(\[来源\d+\])`", r"\1", text)

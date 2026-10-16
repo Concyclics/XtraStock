@@ -1,0 +1,14 @@
+{
+  "version": "market-daily-v1",
+  "scope": "all_a_share",
+  "news_days": 7,
+  "report_days": 14,
+  "document_limit": 40,
+  "report_limit": 40,
+  "hot_sector_limit": 8,
+  "valuation_limit": 8,
+  "watchlist_limit": 12,
+  "max_per_industry": 2,
+  "market_relevance_pattern": "经济|财政|货币|利率|信贷|贷款|汇率|融资|贸易|进出口|出口|消费|生产|产销|价格|投资|业绩|营收|利润|订单|分红|回购|收购|并购|重组|扩产|产能|停产|涨价|降价|成本|库存|零售|销量|景气|政策|能源|油气|电力|医药|汽车|食品|农业|地产|金融|科技|半导体",
+  "routine_disclosure_pattern": "公司章程|股东会|董事会|监事会|法律意见|核查意见|激励计划|议事规则"
+}

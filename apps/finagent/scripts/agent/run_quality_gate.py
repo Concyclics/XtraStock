@@ -42,6 +42,7 @@ def isolated_commands(commands):
 
 COMMANDS = isolated_commands(GROUPED_COMMANDS)
 for module in (
+    'test_market_daily','test_daily_candidate_payload','test_finance_agent_v3_runtime',
     'test_daily_value_plan','test_value_limit_replay','test_value_plan_delivery','test_value_plan_settlement',
     'test_data_registry_alignment','test_research_asset_registry','test_incremental_import',
     'test_report_body_import','test_report_body_recovery','test_forecast_semantics',
@@ -52,6 +53,9 @@ for module in (
     'test_quant_method_library','test_research_history_collection','test_delisting_evidence','test_quant_adaptation','test_execution_diagnostics','test_turnover_policy','test_market_risk_forecast','test_horizon_signals','test_portfolio_exposure','test_financial_history','test_financial_ablation','test_financial_controls','test_seed_ensemble','test_nav_attribution',
 ):
     COMMANDS.append([sys.executable, "-m", "unittest", "tests."+module, "-v"])
+
+for module in ('test_daily_report_model','test_qq_daily_dedup'):
+    COMMANDS.append([sys.executable, '-m', 'unittest', 'MMClaw.tests.'+module, '-v'])
 
 RETRYABLE_CHECKS = {
     "scripts/agent/smoke_finance_v3_tools.py",

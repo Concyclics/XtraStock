@@ -22,6 +22,11 @@ LEGACY_LIST_LIMITS = {
     "prior_daily_reports": 3,
 }
 V3_METRIC_LIMITS = {
+    "market_coverage": 1,
+    "valuation_screen": 12,
+    "sector_research_attention": 12,
+    "candidate_pool": 24,
+    "frozen_research_watchlist": 20,
     "daily_value_plan": 4,
     "dataset_watermark": 20,
     "published_document": 30,
@@ -110,6 +115,8 @@ def compact_v3_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     # ancillary detail instead of dropping a stock or an evidence identifier.
     for item in selected:
         value=item.get('value') or {}
+        if not isinstance(value,dict):
+            continue  # Scalar factor evidence is already bounded and must survive unchanged.
         if value.get('component')=='candidate_pool_summary':
             mining=value.get('mining') or {};notes=[]
             for horizon in mining.get('horizons',[]):
@@ -167,6 +174,18 @@ def compact_v3_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
         [row for row in selected if row.get('metric_id')=='daily_value_plan'][:2])
     protected_pool_ids.update(item['evidence_id'] for item in selected
         if isinstance(item.get('value'),dict) and item['value'].get('component')=='candidate_pool_summary')
+    # The report's three main inputs remain present under size pressure.
+    # Preserve two valuation companies and two industry attention rows, as well
+    # as source-diverse news and the explicit universe coverage statement.
+    for metric in ('valuation_screen','sector_research_attention','market_coverage'):
+        protected_pool_ids.update(item['evidence_id'] for item in
+            [row for row in selected if row.get('metric_id')==metric][:2])
+    sources=set()
+    for item in selected:
+        if item.get('metric_id')=='published_document':
+            source=(item.get('value') or {}).get('source_name')
+            if source not in sources:
+                sources.add(source);protected_pool_ids.add(item['evidence_id'])
     # Include the metadata overhead in the budget, not just the evidence array.
     compact["llm_payload_metadata"] = {
         "source": "data_snapshot.json", "original_evidence_count": len(evidence),

@@ -385,8 +385,6 @@ class ConfigManager(object):
                 "daily_report_user_id": None,
                 "daily_report_to_authorized_user": True,
                 "daily_report_max_chars": 3500,
-                "daily_report_brief_enabled": True,
-                "daily_report_brief_input_chars": 18000
             },
             "feishu": {
                 "app_id": None,
@@ -421,8 +419,6 @@ class ConfigManager(object):
                 "daily_report_group_openids": [],
                 "daily_report_group_openid": None,
                 "daily_report_max_chars": 3500,
-                "daily_report_brief_enabled": True,
-                "daily_report_brief_input_chars": 18000,
                 "file_server_dir": None,
                 "file_server_port": 8788,
                 "file_public_base_url": None

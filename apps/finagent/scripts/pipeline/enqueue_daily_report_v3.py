@@ -48,12 +48,6 @@ def qq_groups() -> list[str]:
     return groups
 
 
-def brief_from_report(text: str) -> str:
-    match = __import__("re").search(r"(?ms)^## 省流版\s*(.*?)(?=^## |\Z)", text)
-    body = match.group(1).strip() if match else "日报已生成，请阅读完整分段。"
-    return "AI硬件日报省流版\n\n" + body
-
-
 def main() -> int:
     parser = argparse.ArgumentParser(description="Enqueue a validated V3 daily report for QQ exactly once.")
     parser.add_argument("--date")
@@ -65,11 +59,11 @@ def main() -> int:
             """
             SELECT report_run_id,status,output_path,validation
             FROM agent.report_runs
-            WHERE report_type='ai_hardware_daily_v3_shadow' AND report_date=%s
+            WHERE report_type=ANY(%s) AND report_date=%s
               AND status IN ('published','degraded')
             ORDER BY completed_at DESC LIMIT 1
             """,
-            (report_date,),
+            (["ai_hardware_daily_v3", "ai_hardware_daily_v3_shadow"] if args.allow_shadow else ["ai_hardware_daily_v3"], report_date),
         ).fetchone()
     if not row:
         raise SystemExit(f"no publishable V3 report for {report_date}")
@@ -78,12 +72,12 @@ def main() -> int:
     path = Path(row["output_path"])
     text = render_report_file(path)
     full_chunks = split_text(text)
-    messages = [("daily_brief", brief_from_report(text)), *[("daily_report", chunk) for chunk in full_chunks]]
+    messages = [("daily_report", chunk) for chunk in full_chunks]
     inserted = 0
     groups = qq_groups()
     with connect(admin=False) as conn:
         for group_id in groups:
-            for index, (kind, content) in enumerate(messages):
+            for index, (kind, content) in enumerate(messages, 1):
                 result = conn.execute(
                     """
                     INSERT INTO agent.message_outbox (
@@ -98,7 +92,7 @@ def main() -> int:
                             "report_run_id": str(row["report_run_id"]), "part": index,
                             "parts": len(messages),
                         }),
-                        20 if kind == "daily_brief" else 30,
+                        30,
                         Jsonb({"source_path": str(path)}),
                     ),
                 )

@@ -201,7 +201,7 @@ def load_pool(conn,cutoff,as_of=None,stock_codes=None,limit=10):
         AND (%s::text[] IS NULL OR stock_code=ANY(%s)) ORDER BY rank LIMIT %s''',(run['run_id'],stock_codes,stock_codes,max(1,min(int(limit),40)))).fetchall()
     output=[]
     for record in rows:
-        p=record['payload'];keys=('stock_code','name','state','rank','score','score_meaning','long_term_score','timing_score',
+        p=record['payload'];keys=('stock_code','name','industry','state','rank','score','score_meaning','long_term_score','timing_score',
             'channels','thesis','financial_evidence','financial_risks','rank_reason','change','feedback_adjustment','feedback_status','financials_as_of','market_as_of','monthly_review','next_checks')
         record={k:p.get(k) for k in keys}
         record['channels']=['业务关联线索' if c=='已审核业务关联' else c for c in (record.get('channels') or [])]

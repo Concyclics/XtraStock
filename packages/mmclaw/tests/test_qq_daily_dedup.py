@@ -19,6 +19,7 @@ class QQDailyDedupTests(unittest.TestCase):
         connector._daily_report_brief_message = mock.Mock(return_value="brief")
         connector.send_messages_to_group = mock.Mock(return_value=True)
         connector._log_event = mock.Mock()
+        connector._maybe_push_value_plan = mock.Mock()
         return connector
 
     def assert_no_generation_or_send(self, connector):
@@ -56,22 +57,22 @@ class QQDailyDedupTests(unittest.TestCase):
         }})
         connector._maybe_push_daily_report()
         connector._maybe_push_daily_report()
-        connector._daily_report_brief_message.assert_called_once()
-        connector.send_messages_to_group.assert_called_once_with("group-b", ["brief", "full report"])
+        connector._daily_report_brief_message.assert_not_called()
+        connector.send_messages_to_group.assert_called_once_with("group-b", ["full report"])
         self.assertEqual("2026-10-13", connector._load_daily_report_state.return_value[
             "sent_groups"]["group-b"]["last_sent_date"])
 
-    def test_previous_day_does_not_block_new_day_and_summary_is_shared(self):
+    def test_previous_day_does_not_block_new_day_and_full_report_is_shared(self):
         connector = self.connector({"sent_groups": {
             "group-a": {"last_sent_date": "2026-10-12"},
             "group-b": {"last_failed_date": "2026-10-12"},
         }})
         connector._maybe_push_daily_report()
         connector._maybe_push_daily_report()
-        connector._daily_report_brief_message.assert_called_once()
+        connector._daily_report_brief_message.assert_not_called()
         self.assertEqual(connector.send_messages_to_group.call_args_list, [
-            mock.call("group-a", ["brief", "full report"]),
-            mock.call("group-b", ["brief", "full report"]),
+            mock.call("group-a", ["full report"]),
+            mock.call("group-b", ["full report"]),
         ])
 
 
