@@ -56,6 +56,7 @@ class QuantReportingTests(unittest.TestCase):
                 years.append({**keys, 'year': int(year), 'net_return': value['return'],
                               'is_partial_year': year == '2026', 'period_start': section[0], 'period_end': section[-1]})
             result = {'nav': nav.tolist(), 'dates': dates, 'protocol_sha256': protocol_hash,
+                      'policy': {'vol_estimator': 'market'},
                       'rebalance_log': [], 'metrics': {'minimum_cash': 0}}
             with gzip.open(self.path / 'simulations' / f'discovery-cost15-{name}-{allocation}.json.gz', 'wt') as f:
                 json.dump(result, f)

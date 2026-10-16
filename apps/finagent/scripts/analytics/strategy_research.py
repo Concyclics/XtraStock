@@ -299,7 +299,13 @@ def backtest(d,f,policy,start,end,*,keep_trades=False,keep_fills=False):
         raise ValueError('invalid selection policy')
     if policy.target_vol is not None and policy.target_vol<=0:raise ValueError('invalid volatility budget')
     if policy.risk_rebalance is not None and policy.risk_rebalance<1:raise ValueError('invalid risk cadence')
-    if policy.vol_estimator not in ('market','portfolio'):raise ValueError('unknown volatility estimator')
+    if policy.vol_estimator not in ('market','portfolio','market_ewma20','market_har20'):raise ValueError('unknown volatility estimator')
+    if policy.vol_estimator in ('market_ewma20','market_har20'):
+        forecasts=f.get('market_risk_forecasts',{}).get(policy.vol_estimator)
+        if policy.target_vol is None or forecasts is None or np.shape(forecasts)!=(len(d['dates']),):
+            raise ValueError('missing market risk forecasts or target')
+        if np.isinf(forecasts).any() or np.any(np.asarray(forecasts)<0):
+            raise ValueError('invalid market risk forecasts')
     if policy.vol_min_observations<2 or policy.vol_window<policy.vol_min_observations or not 0<=policy.covariance_shrinkage<=1:
         raise ValueError('invalid portfolio risk estimator')
     if not 0<policy.adjustment_fraction<=1 or not 0<=policy.relative_no_trade_band<1:
@@ -372,6 +378,8 @@ def backtest(d,f,policy,start,end,*,keep_trades=False,keep_fills=False):
                 if policy.vol_estimator=='portfolio':
                     vol,risk_observations=portfolio_volatility(f['returns'],s,order,weights,
                         policy.vol_window,policy.vol_min_observations,policy.covariance_shrinkage)
+                elif policy.vol_estimator in ('market_ewma20','market_har20'):
+                    vol=f['market_risk_forecasts'][policy.vol_estimator][s]
                 else:vol=f['market_vol'][s]
                 estimated_vol=float(vol) if np.isfinite(vol) else None
                 allocation*=min(1.,policy.target_vol/max(float(vol),.05)) if np.isfinite(vol) else 0.

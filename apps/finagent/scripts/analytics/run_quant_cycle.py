@@ -244,9 +244,12 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
         intervals.append({'model': row['model'], 'allocation': row['allocation'],
                           **block_bootstrap_cagr(result['nav'],result['dates'])})
     dump(out / 'UNCERTAINTY.json', intervals)
+    result_names = ['COSTED_RESULTS.csv', 'YEARLY_RESULTS.csv']
+    if spec.get('market_risk_model'):
+        result_names.append('RISK_PREDICTION_RESULTS.csv')
     dump(out / 'EXPERIMENT_CONTRACT.json', {
         'contract_version': '1', 'gate_status': 'research_only_execution_and_independent_history_gaps',
-        'result_artifacts': {name: checksum(out/name) for name in ('COSTED_RESULTS.csv', 'YEARLY_RESULTS.csv')},
+        'result_artifacts': {name: checksum(out/name) for name in result_names},
         'metric_units': {**{key: 'fraction' for key in ('net_return', 'net_cagr', 'maximum_drawdown', 'period_win_rate',
                                                      'closed_trade_win_rate', 'cagr_excess', 'win_rate_difference')},
                          'initial_cash': 'CNY', 'holdings': 'securities', 'cost': 'bps_per_side',
@@ -254,6 +257,10 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
                          'annual_traded_notional_over_nav': 'annual_buy_plus_sell_notional_over_NAV',
                          'adjustment_fraction': 'fraction', 'relative_no_trade_band': 'fraction',
                          'holding_buffer': 'rank_cutoff_multiplier',
+                         'observations': 'signal_dates', 'variance_mse': 'daily_return_to_fourth_power',
+                         'mse_skill_vs_sample20': 'fraction', 'mse_skill_vs_training_mean': 'fraction',
+                         'qlike': 'dimensionless_variance_ratio_loss', 'annual_volatility_mae': 'annual_volatility_fraction',
+                         'risk_underestimate_rate': 'fraction', 'fourfold_variance_underestimate_rate': 'fraction',
                          **{key: 'simulated_fills' for key in ('fill_count', 'share_volume_breach',
                              'lower_bound_only_breach', 'observed_notional_breach', 'unknown_daily_volume')}},
         'comparison_dimensions': ['model', 'allocation', 'cohort', 'cost', 'year', 'initial_cash', 'holdings'],

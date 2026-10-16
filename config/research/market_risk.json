@@ -1,0 +1,91 @@
+{
+  "capital_levels": [
+    1000000,
+    10000000
+  ],
+  "models": [
+    "annual_tree_blend",
+    "annual_ridge_extended"
+  ],
+  "cohorts": [
+    "all",
+    "discovery",
+    "cross_section_reserve"
+  ],
+  "cost_bps_per_side": [
+    15,
+    30
+  ],
+  "execution_audit": true,
+  "version": "market-risk-forecast-v1",
+  "allocations": {
+    "k100_equal": {
+      "size": 100
+    },
+    "k100_portfolio_risk24-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "target_vol": 0.24,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35,
+      "risk_rebalance": 5,
+      "vol_estimator": "portfolio",
+      "relative_no_trade_band": 0.25
+    },
+    "k100_market20_risk24-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "target_vol": 0.24,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35,
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "vol_estimator": "market"
+    },
+    "k100_ewma20_risk24-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "target_vol": 0.24,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35,
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "vol_estimator": "market_ewma20"
+    },
+    "k100_har20_risk24-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "target_vol": 0.24,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35,
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "vol_estimator": "market_har20"
+    },
+    "k100_har20_risk24_notrend-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "target_vol": 0.24,
+      "regime": "none",
+      "exposure_floor": 0.35,
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "vol_estimator": "market_har20"
+    }
+  },
+  "market_risk_model": {
+    "horizon": 20,
+    "feature_windows": [
+      1,
+      5,
+      22
+    ],
+    "refit": "quarterly",
+    "training_sessions": 756,
+    "minimum_training_dates": 200,
+    "ridge_penalty": 10.0,
+    "ewma_half_life": 20.0,
+    "minimum_market_members": 20
+  },
+  "selection": "Freeze 312 accounts with same score forecasts, two capitals and costs, and all cohorts. No leverage, no return-based model selection or automatic promotion."
+}

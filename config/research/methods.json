@@ -55,7 +55,7 @@
         "scope": "多类因子组合；原策略与本项目的无杠杆多头约束不同"
       },
       "finding": "原研究检验高波动时减少风险敞口，发现风险调整后表现可以改善。",
-      "adaptation": "使用滞后的波动率估计、无杠杆仓位上限和独立风险调仓；本项目的目标波动率和趋势仓位下限属于待检验改编，并非论文原样复现。",
+      "adaptation": "冻结股票预测，比较原组合协方差、20日历史市场波动、指数加权波动和按季度滚动训练的多周期风险预测。只使用近五年内已成熟的标签，无杠杆并保持同一费用、资金和仓位上限；另列去除趋势限制的对照，不用全样本波动重新缩放收益。",
       "required_data": [
         "历史收益序列",
         "实际交易日历",
@@ -69,14 +69,29 @@
       ],
       "limitations": [
         "降仓可能错过急速反弹",
-        "市场波动率不能完全代表所选股票组合风险"
+        "市场波动率不能完全代表所选股票组合风险",
+        "风险预测更准不代表选股或扣费收益更好，必须分别验收。",
+        "已反复查看的历史回测不等同独立留出验证。"
       ],
       "tags": [
         "风控",
         "回撤",
         "仓位",
         "波动率"
-      ]
+      ],
+      "implementation_status": "causal_market_risk_forecast_comparisons_implemented_research_only",
+      "contrasting_evidence": {
+        "title": "On the performance of volatility-managed portfolios",
+        "authors": [
+          "Scott Cederburg",
+          "Michael S. O’Doherty",
+          "Feifei Wang",
+          "Xuemin Sterling Yan"
+        ],
+        "year": 2020,
+        "url": "https://www.sciencedirect.com/science/article/pii/S0304405X2030132X",
+        "finding": "该研究在103种股票策略中未发现波动管理普遍胜出的证据；应检验可实时实施的样本外组合，不能用事后最优权重推断收益。"
+      }
     },
     {
       "method_key": "cost_aware_turnover",
@@ -610,6 +625,52 @@
         "信号衰减",
         "成本",
         "组合",
+        "近五年"
+      ]
+    },
+    {
+      "method_key": "market_risk_har",
+      "title": "多周期市场波动预测与成熟标签隔离",
+      "source": {
+        "title": "A Simple Approximate Long-Memory Model of Realized Volatility",
+        "authors": [
+          "Fulvio Corsi"
+        ],
+        "year": 2009,
+        "url": "https://statmath.wu.ac.at/~hauser/LVs/FinEtricsQF/References/Corsi2009JFinEtrics_LMmodelRealizedVola.pdf",
+        "scope": "原文使用日内高频数据构造已实现波动；本项目仅用日线平方收益，不能等同原文HAR-RV复现。"
+      },
+      "finding": "原研究用日、周、月成分刻画波动的多周期持续性，并比较简单模型的预测表现。",
+      "adaptation": "把前一日合格股票构成的市场平均收益作为公共历史背景；用1、5、22日平方收益均值的对数预测未来20日平均平方收益。每季度训练固定正则模型，仅用此前756个交易日且在主窗口内、标签已于首个信号日前成熟的样本；变换、残差均值校准和预测边界都只在训练期估计。",
+      "implementation_status": "daily_return_har_style_research_only",
+      "required_data": [
+        "统一交易日历与总收益口径",
+        "前一交易日的证券合格状态",
+        "缺失与异常行情标记",
+        "逐次训练、预测及标签完成日期",
+        "未使用未来成交量的现金股数账本"
+      ],
+      "tests": [
+        "改动未来收益不改变历史预测",
+        "训练标签不能触及首个预测信号日",
+        "主窗口前的记录仅初始化特征",
+        "少于20个合格证券或缺失收益不填零",
+        "历史波动、指数加权及训练均值用同一成熟样本比较",
+        "重叠日样本和固定20日非重叠样本分别报告",
+        "实际仓位必须使用前一交易日的预测并可从记录重算"
+      ],
+      "limitations": [
+        "日线平方收益比日内已实现波动更嘈杂。",
+        "20日风险标签为收盘到收盘风险代理，不是下一开盘可交易收益。",
+        "市场风险不能完全代表具体选股组合风险。",
+        "波动预测能力不能自动批准生产预测或交易。"
+      ],
+      "tags": [
+        "多周期波动",
+        "HAR",
+        "风险预测",
+        "成熟标签",
+        "仓位",
         "近五年"
       ]
     }

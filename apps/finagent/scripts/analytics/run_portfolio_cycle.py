@@ -50,6 +50,11 @@ def protocol(dataset, reference, capital, members, study_path):
         benchmark_note='Equal-weight benchmark uses fractional shares as a reference; model portfolios retain round-lot constraints.',
         code={name: checksum(code/name) for name in ('run_portfolio_cycle.py', 'run_quant_cycle.py',
              'strategy_research.py', 'strategy_dataset.py', 'quant_learning.py', 'execution_diagnostics.py', 'verify_quant_cycle.py')})
+    if study.get('market_risk_model'):
+        from market_risk_forecast import validate_config
+        validate_config(study['market_risk_model'])
+        spec['market_risk_model'] = study['market_risk_model']
+        spec['code']['market_risk_forecast.py'] = checksum(code/'market_risk_forecast.py')
     return spec
 
 
@@ -107,6 +112,9 @@ def main():
     dump(out / 'RUNNING.json', {'started_at': started, 'protocol_sha256': protocol_hash, 'model_refitted': False})
     data = load_dataset(args.dataset, 'all')
     features = prepare_features(data)
+    if spec.get('market_risk_model'):
+        from market_risk_forecast import market_inputs, build_artifacts
+        features['market_risk_forecasts'] = build_artifacts(out, market_inputs(data, features), spec, protocol_hash)
     with np.load(prediction_path, allow_pickle=False) as source:
         scores = {name: source[name] for name in spec['models']}
     if any(score.shape != data['close'].shape for score in scores.values()):

@@ -335,3 +335,47 @@ Primary references: [Gu, Kelly and Xiu](https://www.nber.org/papers/w25398),
 [equal-weight portfolio comparison](https://doi.org/10.1093/rfs/hhm075),
 [delisting bias](https://doi.org/10.1111/j.1540-6261.1997.tb03818.x),
 and [selection-bias research](https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf).
+
+
+## Causal market-risk forecasts
+
+`config/research/market_risk.json` fixes the stock scores and compares portfolio
+covariance risk, historical 20-session market volatility, exponentially weighted
+risk, and a quarterly fitted HAR-style daily-return model. A separate HAR
+construction removes the trend restriction; no construction uses leverage.
+Run the existing `run_portfolio_cycle.py` command with this study configuration.
+The source window and frozen reference predictions are verified before fitting.
+
+`market_risk_forecast.py` uses log averages of daily squared market returns over
+1, 5 and 22 sessions to predict the next 20 sessions' mean squared return. This
+is a daily-data approximation, not Corsi's intraday HAR-RV implementation.
+Membership is the prior session's eligible universe. Low breadth and missing
+returns remain missing. Training uses at most 756 preceding sessions, inside
+the primary five-year window, and only labels ending strictly before the first
+signal of the next quarter. Standardization, regularization, residual smearing
+and log prediction bounds use only that training set. A fixed penalty is used;
+no test-return search or full-sample risk normalization occurs.
+
+The market aggregate includes public price history for the full frozen universe;
+it is neither a tradable index nor a market signal independent of reserve
+stocks. Its close-to-close squared-return target is a risk proxy, not the
+next-open account return. Unknown future outcomes are never scored as zero.
+`RISK_PREDICTION_RESULTS.csv` compares all methods on identical matured dates,
+with yearly and overall rows, overlapping and fixed nonoverlapping windows.
+QLIKE here is `actual/predicted - log(actual/predicted) - 1`; smaller is better.
+Prediction accuracy and net trading performance are separate acceptance tests.
+
+The runner saves aggregate inputs, forecasts, every training fold and a receipt.
+`verify_quant_cycle.py` reconstructs all risk forecasts and scores, checks the
+training boundaries, and verifies each account's prior-session risk estimate
+and target exposure in addition to NAV, fees and fills. Missing forecasts are
+explicitly counted and cannot silently fall back to another risk model.
+Old policy defaults and previously audited accounts must remain unchanged.
+
+[Corsi (2009)](https://statmath.wu.ac.at/~hauser/LVs/FinEtricsQF/References/Corsi2009JFinEtrics_LMmodelRealizedVola.pdf)
+provides the multi-horizon motivation.
+[Moreira and Muir's working paper](https://conference.nber.org/confer/2016/LTAMs16/Moreira_Muir.pdf)
+studies volatility management, while
+[Cederburg et al. (2020)](https://www.sciencedirect.com/science/article/pii/S0304405X2030132X)
+reports mixed performance across strategies. These sources motivate tests, not
+a claim that this adaptation improves A-share returns.

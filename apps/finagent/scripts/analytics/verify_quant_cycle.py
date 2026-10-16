@@ -35,6 +35,10 @@ def verify(experiment):
     if len(table) != expected or len(yearly) != expected * len(protocol['test_years']) or table.duplicated(keys).any():
         raise ValueError('Missing or duplicate experiment results')
     audit, recomputed = [], []
+    risks = None
+    if protocol.get('market_risk_model'):
+        from market_risk_forecast import verify_artifacts
+        risks = verify_artifacts(experiment, protocol, completed['protocol_sha256'])
     complete_years = set(protocol.get('complete_test_years', protocol['test_years']))
     cohort_members = None
     if protocol.get('portfolio_evaluation_contract') == 1:
@@ -58,12 +62,19 @@ def verify(experiment):
             if ('cost_bps_per_side' in study and protocol['cost_bps_per_side'] != study['cost_bps_per_side']) or (
                     bool(protocol.get('execution_audit')) != bool(study.get('execution_audit'))):
                 raise ValueError('Cost or execution audit differs from the predeclared study')
+            if protocol.get('market_risk_model') != study.get('market_risk_model'):
+                raise ValueError('Market-risk model differs from predeclared study')
     for row in table.to_dict('records'):
         path = experiment / 'simulations' / f"{row['cohort']}-cost{row['cost']}-{row['model']}-{row['allocation']}.json.gz"
         with gzip.open(path, 'rt') as stream:
             result = json.load(stream)
         if result.get('protocol_sha256') != completed['protocol_sha256']:
             raise ValueError('Simulation protocol differs')
+        if result['policy']['vol_estimator'] in ('market_ewma20', 'market_har20'):
+            if risks is None:
+                raise ValueError('Forecast risk policy has no verified inputs')
+            from market_risk_forecast import verify_risk_budget
+            verify_risk_budget(result, risks)
         nav = np.asarray(result['nav'], float)
         dates = result['dates']
         if len(nav) != len(dates) + 1 or not np.all(np.isfinite(nav)) or np.any(nav <= 0):
