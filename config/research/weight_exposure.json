@@ -1,0 +1,109 @@
+{
+  "version": "fixed-stock-weight-and-exposure-v1",
+  "capital_levels": [
+    1000000,
+    10000000
+  ],
+  "models": [
+    "annual_tree_blend",
+    "annual_tree_h5",
+    "multihorizon_tree"
+  ],
+  "model_horizons": {
+    "annual_tree_blend": [
+      20
+    ],
+    "annual_tree_h5": [
+      5
+    ],
+    "multihorizon_tree": [
+      5,
+      20
+    ]
+  },
+  "cohorts": [
+    "all",
+    "discovery",
+    "cross_section_reserve"
+  ],
+  "cost_bps_per_side": [
+    15,
+    30
+  ],
+  "allocations": {
+    "k100_equal": {
+      "size": 100
+    },
+    "k100_portfolio_risk24-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "target_vol": 0.24,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35,
+      "risk_rebalance": 5,
+      "vol_estimator": "portfolio",
+      "relative_no_trade_band": 0.25
+    },
+    "k100_equal_full-refresh5-band25": {
+      "size": 100,
+      "weighting": "equal",
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25
+    },
+    "k100_equal_trend-refresh5-band25": {
+      "size": 100,
+      "weighting": "equal",
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35
+    },
+    "k100_equal_risk24-refresh5-band25": {
+      "size": 100,
+      "weighting": "equal",
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35,
+      "target_vol": 0.24,
+      "vol_estimator": "portfolio"
+    },
+    "k100_equal_risk30-refresh5-band25": {
+      "size": 100,
+      "weighting": "equal",
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35,
+      "target_vol": 0.3,
+      "vol_estimator": "portfolio"
+    },
+    "k100_inverse_full-refresh5-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25
+    },
+    "k100_inverse_trend-refresh5-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35
+    },
+    "k100_inverse_risk30-refresh5-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35,
+      "target_vol": 0.3,
+      "vol_estimator": "portfolio"
+    }
+  },
+  "execution_audit": true,
+  "exposure_audit": true,
+  "selection": "Frozen tree scores with eight fixed weight/exposure cells and one legacy full-equal control. All outcomes retained. No return-based parameter search or automatic promotion."
+}

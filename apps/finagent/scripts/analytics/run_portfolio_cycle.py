@@ -56,9 +56,14 @@ def protocol(dataset, reference, capital, members, study_path):
         spec['market_risk_model'] = study['market_risk_model']
         spec['code']['market_risk_forecast.py'] = checksum(code/'market_risk_forecast.py')
     if study.get('model_horizons'):
-        if spec.get('model_horizons') != study['model_horizons']:
+        selected_horizons = {name: spec.get('model_horizons', {}).get(name) for name in study['models']}
+        if selected_horizons != study['model_horizons'] or any(value is None for value in selected_horizons.values()):
             raise ValueError('Reference prediction horizons differ from the portfolio study')
+        spec['model_horizons'] = selected_horizons
         spec['code']['horizon_signals.py'] = checksum(code/'horizon_signals.py')
+    if study.get('exposure_audit'):
+        spec['exposure_audit'] = True
+        spec['code']['verify_portfolio_exposure.py'] = checksum(code/'verify_portfolio_exposure.py')
     return spec
 
 

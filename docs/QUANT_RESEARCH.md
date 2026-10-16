@@ -437,3 +437,48 @@ rank average does not reproduce its double-sort or buy/hold-spread strategies.
 [De Groot, Huij and Zhou](https://repub.eur.nl/pub/25718/AnotherLook_2011.pdf)
 further motivates explicit costs and retention rules. Neither paper establishes
 that faster forecasts or selection improve this A-share account.
+
+## Stock weights and total exposure
+
+`config/research/weight_exposure.json` freezes three tree score families and
+crosses equal/inverse-volatility stock weights with four exposure rules: full
+target, trend-only, and trend plus 24%/30% covariance-volatility budgets. All eight
+core cells refresh targets every five sessions, select every twenty, and retain
+the same 25% relative no-trade band. Thus weighting, trend and volatility-budget
+contrasts can be evaluated separately. A volatility goal is not a drawdown cap.
+
+The ninth allocation preserves the legacy full equal-weight account, which has
+twenty-session refresh and no target band. Its comparison to the new full target
+changes both refresh cadence and the band, so it is explicitly a combined-rule
+contrast. Fill constraints and incumbent retention can also change realized
+constituents even when score arrays and selection rules are identical.
+
+Run `run_portfolio_cycle.py` with this study and the completed horizon-prediction
+directory as reference, then run `verify_quant_cycle.py` as above. For each
+declared capital also run:
+
+```bash
+python apps/finagent/scripts/analytics/verify_portfolio_exposure.py \
+  --experiment .local/research/weight-exposure-1000000 \
+  --dataset .local/research/market \
+  --report .local/research/exposure-1000000-verification.json
+```
+
+The 348 accounts include 174 per capital, with both same-capital benchmarks.
+The runner can select a declared subset of frozen prediction families while
+preserving the original prediction file and each selected family's label horizon.
+Relabeling a reference family is rejected. No fitting occurs in this study.
+
+The exposure verifier checks every model account's decision calendar, prior
+signal date, selected stocks, risk-history coverage and target allocation. It
+uses a separate sorted-saturation weight solution and centered weighted-return
+covariance calculation. Missing history cannot become a fallback risk estimate.
+Target-rule verification complements cash/fill audits; it does not assert that
+blocked orders attained targets or that future risk stays below the goal.
+
+[Hjalmarsson and Manchev](https://www.federalreserve.gov/pubs/ifdp/2009/981/ifdp981.htm)
+distinguish expected-return prediction from portfolio-weight choice and retain
+a strong equal-weight comparison. This factorial study uses fixed rules rather
+than reproducing their characteristic-based optimizer. All model choices still
+come from inspected historical research and require subsequent independent
+validation before production use.

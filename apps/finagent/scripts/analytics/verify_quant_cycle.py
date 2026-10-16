@@ -66,6 +66,11 @@ def verify(experiment):
                 raise ValueError('Market-risk model differs from predeclared study')
             if protocol.get('model_horizons') != study.get('model_horizons'):
                 raise ValueError('Prediction horizon metadata differs from predeclared study')
+            if protocol.get('model_horizons') and protocol['model_horizons'] != {
+                    name: reference.get('model_horizons', {}).get(name) for name in protocol['models']}:
+                raise ValueError('Selected prediction horizons differ from frozen reference')
+            if bool(protocol.get('exposure_audit')) != bool(study.get('exposure_audit')):
+                raise ValueError('Exposure audit differs from the predeclared study')
     for row in table.to_dict('records'):
         path = experiment / 'simulations' / f"{row['cohort']}-cost{row['cost']}-{row['model']}-{row['allocation']}.json.gz"
         with gzip.open(path, 'rt') as stream:
