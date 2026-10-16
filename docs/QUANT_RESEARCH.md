@@ -379,3 +379,61 @@ studies volatility management, while
 [Cederburg et al. (2020)](https://www.sciencedirect.com/science/article/pii/S0304405X2030132X)
 reports mixed performance across strategies. These sources motivate tests, not
 a claim that this adaptation improves A-share returns.
+
+## Prediction horizon and selection cadence
+
+`config/research/horizons.json` separates the training label from portfolio
+selection frequency. It declares annual 5-session fits, unchanged annual
+20-session controls and a fixed equal-weight blend of each family's two
+contemporaneous ranks. Missing components remain missing. No mixture weight is
+chosen on test returns. The three-year rolling history, purged 63-date validation,
+tree settings and five-year primary boundary remain unchanged. Shorter labels
+mature earlier, so their training sets can include 15 more recent signal dates.
+
+```bash
+python apps/finagent/scripts/analytics/run_horizon_cycle.py \
+  --dataset .local/research/market \
+  --forecasts .local/research/forecast-features.npz \
+  --reference-experiment .local/research/adaptation \
+  --study-config config/research/horizons.json \
+  --output .local/research/horizons
+python apps/finagent/scripts/analytics/verify_adaptation_cycle.py \
+  --experiment .local/research/horizons \
+  --dataset .local/research/market \
+  --reference-experiment .local/research/adaptation \
+  --report .local/research/horizons-verification.json
+python apps/finagent/scripts/analytics/run_portfolio_cycle.py \
+  --dataset .local/research/market \
+  --reference-experiment .local/research/horizons \
+  --study-config config/research/horizons.json \
+  --capital 1000000 \
+  --output .local/research/horizons-1000000
+python apps/finagent/scripts/analytics/verify_quant_cycle.py \
+  --experiment .local/research/horizons-1000000 \
+  --report .local/research/horizons-1000000-verification.json
+```
+
+Repeat at the other declared capital. Each capital has 156 accounts: six
+scores, four allocations and two benchmarks across three cohorts and two costs.
+Compare 5/20-session selection at fixed signal and allocation; separately
+compare signals at fixed selection interval. Selection intervals are not forced
+holding periods: rank retention and blocked fills can extend actual holdings.
+Equal-weight and covariance-risk allocations retain the same cost and turnover
+rules as their previous controls. Include fill traces and audited cash books.
+
+Account tables retain `horizon=20` for the nonoverlapping NAV-win-rate test and
+add `prediction_horizons` (`5`, `20`, `5+20`, or `not_applicable` for benchmarks)
+and `rebalance_sessions`. Yearly rows retain both. The verifier compares these
+to the declared model and actual policy, including default selection intervals.
+Prediction diagnostics are different: their `horizon` names the realized label
+under evaluation. They report both 5/20-session raw next-open returns on mature
+complete windows. The next execution open determines calendar-year ownership;
+the last signal without a subsequent open is excluded. These correlations use
+overlapping labels and cannot substitute for executed net account performance.
+
+[Nechvátalová (2024)](https://journal.fsv.cuni.cz/article/multi-horizon-equity-returns-predictability-via-machine-learning/)
+motivates separating forecast horizon, turnover and net performance. Our fixed
+rank average does not reproduce its double-sort or buy/hold-spread strategies.
+[De Groot, Huij and Zhou](https://repub.eur.nl/pub/25718/AnotherLook_2011.pdf)
+further motivates explicit costs and retention rules. Neither paper establishes
+that faster forecasts or selection improve this A-share account.

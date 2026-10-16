@@ -204,6 +204,9 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
                    'complete_evaluation_years': len(complete_years),
                    'evaluation_start': result['dates'][0], 'evaluation_end': result['dates'][-1],
                    'production_approved': False}
+            if spec.get('model_horizons'):
+                from horizon_signals import prediction_horizons
+                row.update(prediction_horizons=prediction_horizons(spec, name), rebalance_sessions=policy.rebalance)
             if spec.get('execution_audit'):
                 counts = result['execution_audit']['counts']
                 row.update({key: counts.get(key, 0) for key in ('fill_count', 'share_volume_breach',
@@ -227,6 +230,8 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
                                'sessions': value['sessions'], 'is_partial_year': year not in complete_years,
                                'period_start': result['dates'][int(indices[0])],
                                'period_end': result['dates'][int(indices[-1])]})
+                if spec.get('model_horizons'):
+                    annual[-1].update(prediction_horizons=prediction_horizons(spec, name), rebalance_sessions=policy.rebalance)
             pd.DataFrame(summaries).to_csv(out / 'COSTED_RESULTS.csv', index=False)
             pd.DataFrame(annual).to_csv(out / 'YEARLY_RESULTS.csv', index=False)
             print(json.dumps({'phase': 'replay', 'completed': len(summaries), 'of': total,
@@ -257,6 +262,7 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
                          'annual_traded_notional_over_nav': 'annual_buy_plus_sell_notional_over_NAV',
                          'adjustment_fraction': 'fraction', 'relative_no_trade_band': 'fraction',
                          'holding_buffer': 'rank_cutoff_multiplier',
+                         'prediction_horizons': 'label_trading_sessions_joined', 'rebalance_sessions': 'trading_sessions',
                          'observations': 'signal_dates', 'variance_mse': 'daily_return_to_fourth_power',
                          'mse_skill_vs_sample20': 'fraction', 'mse_skill_vs_training_mean': 'fraction',
                          'qlike': 'dimensionless_variance_ratio_loss', 'annual_volatility_mae': 'annual_volatility_fraction',

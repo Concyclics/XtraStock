@@ -22,6 +22,7 @@ from tests.test_strategy_research import toy
 
 class PortfolioCycleTests(unittest.TestCase):
     execution_audit = False
+    horizon_study = False
 
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
@@ -45,6 +46,9 @@ class PortfolioCycleTests(unittest.TestCase):
             self.spec['execution_audit'] = True
             self.spec['allocations']['one']['adjustment_fraction'] = .5
             self.spec['allocations']['three']['relative_no_trade_band'] = .25
+        if self.horizon_study:
+            self.spec['model_horizons'] = {'candidate': [5, 20]}
+            self.spec['allocations']['one']['rebalance'] = 5
         dump(self.path / 'PROTOCOL.json', self.spec)
         self.protocol_hash = checksum(self.path / 'PROTOCOL.json')
         np.savez(self.path / 'PREDICTIONS.npz', **self.scores)
@@ -137,6 +141,39 @@ class AuditedPortfolioCycleTests(PortfolioCycleTests):
         table.loc[table.model == 'candidate', 'share_volume_breach'] += 1
         table.to_csv(path, index=False)
         with self.assertRaisesRegex(ValueError, 'summary differs from fill evidence'):
+            verify(self.path)
+
+
+class HorizonPortfolioCycleTests(PortfolioCycleTests):
+    horizon_study = True
+
+    def test_prediction_and_selection_horizons_survive_cashbook_reporting(self):
+        table = pd.read_csv(self.path/'COSTED_RESULTS.csv')
+        candidate = table[table.model == 'candidate']
+        self.assertEqual(set(candidate.prediction_horizons), {'5+20'})
+        self.assertEqual(set(candidate[candidate.allocation == 'one'].rebalance_sessions), {5})
+        self.assertEqual(set(candidate[candidate.allocation == 'three'].rebalance_sessions), {20})
+        self.assertTrue((table.horizon == 20).all())
+        self.assertEqual(verify(self.path)['simulations'], 8)
+
+    def test_wrong_prediction_label_is_rejected(self):
+        path = self.path/'COSTED_RESULTS.csv'
+        table = pd.read_csv(path)
+        table.loc[table.model == 'candidate', 'prediction_horizons'] = '20'
+        table.to_csv(path, index=False)
+        with self.assertRaisesRegex(ValueError, 'horizon metadata'):
+            verify(self.path)
+
+    def test_default_selection_cadence_cannot_be_changed_even_with_matching_csv(self):
+        result = self.load_simulation('all', 'candidate', 'three')
+        result['policy']['rebalance'] = 5
+        with gzip.open(self.path/'simulations/all-cost15-candidate-three.json.gz', 'wt') as f:
+            json.dump(result, f)
+        path = self.path/'COSTED_RESULTS.csv'
+        table = pd.read_csv(path)
+        table.loc[(table.model == 'candidate') & (table.allocation == 'three') & (table.cohort == 'all'), 'rebalance_sessions'] = 5
+        table.to_csv(path, index=False)
+        with self.assertRaisesRegex(ValueError, 'horizon metadata'):
             verify(self.path)
 
 

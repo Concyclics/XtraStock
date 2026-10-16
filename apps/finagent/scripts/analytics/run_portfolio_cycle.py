@@ -55,6 +55,10 @@ def protocol(dataset, reference, capital, members, study_path):
         validate_config(study['market_risk_model'])
         spec['market_risk_model'] = study['market_risk_model']
         spec['code']['market_risk_forecast.py'] = checksum(code/'market_risk_forecast.py')
+    if study.get('model_horizons'):
+        if spec.get('model_horizons') != study['model_horizons']:
+            raise ValueError('Reference prediction horizons differ from the portfolio study')
+        spec['code']['horizon_signals.py'] = checksum(code/'horizon_signals.py')
     return spec
 
 

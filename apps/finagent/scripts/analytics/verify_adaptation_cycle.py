@@ -35,6 +35,14 @@ def audit_predictions(directory, data, features, reference):
             or any(spec[key] != study[key] for key in ('models', 'training_years', 'validation_sessions'))
             or data['primary_since'] != spec['primary_since']):
         raise ValueError('training did not preserve the declared study')
+    if spec['horizon'] != study.get('label_horizon', spec['horizon']):
+        raise ValueError('Training label horizon differs from the study')
+    for key in ('prediction_reference_map', 'score_blends', 'model_horizons', 'diagnostic_horizons', 'diagnostic_next_open'):
+        if spec.get(key) != study.get(key):
+            raise ValueError('Horizon construction differs from the study: ' + key)
+    if spec.get('model_horizons'):
+        from horizon_signals import validate_study
+        validate_study(study)
     receipt = json.loads((directory / 'PREDICTION_RECEIPT.json').read_text())
     if receipt['protocol_sha256'] != digest or receipt['sha256'] != checksum(directory / 'PREDICTIONS.npz'):
         raise ValueError('prediction payload receipt differs')
@@ -47,9 +55,16 @@ def audit_predictions(directory, data, features, reference):
     if set(scores) != set(spec['models']) or any(s.shape != data['close'].shape for s in scores.values()):
         raise ValueError('declared prediction families or dimensions differ')
     with np.load(reference / 'PREDICTIONS.npz', allow_pickle=False) as z:
-        for current, old in [('annual_tree_blend', 'tree_blend'), ('annual_ridge_extended', 'ridge_extended')]:
+        reference_map = spec.get('prediction_reference_map', {'annual_tree_blend': 'tree_blend', 'annual_ridge_extended': 'ridge_extended'})
+        for current, old in reference_map.items():
             if not np.array_equal(scores[current], z[old], equal_nan=True):
                 raise ValueError('annual control scores were changed')
+    if spec.get('score_blends'):
+        from horizon_signals import blend_scores
+        components = {name: value for name, value in scores.items() if name not in spec['score_blends']}
+        for name, expected in blend_scores(components, features['eligible'], spec['score_blends']).items():
+            if not np.array_equal(scores[name], expected, equal_nan=True):
+                raise ValueError('Horizon blend differs from fixed contemporaneous components')
     dates = data['dates']
     outcome, relative = labels(data, features, spec['horizon'])
     mask = features['eligible'] & (data['cohort'][None, :] == 'discovery') & np.isfinite(relative)
@@ -62,7 +77,7 @@ def audit_predictions(directory, data, features, reference):
     for name, cfg in spec['training_variants'].items():
         owned = np.zeros(len(dates), int)
         records = [fold for fold in folds if fold['variant'] == name]
-        period_code = {'quarterly': 'Q', 'monthly': 'M'}[cfg['cadence']]
+        period_code = {'annual': 'Y', 'quarterly': 'Q', 'monthly': 'M'}[cfg['cadence']]
         observed_periods = pd.PeriodIndex(pd.to_datetime(dates[first:limit]), freq=period_code).unique()
         expected_starts = {p.start_time.strftime('%Y-%m-%d') for p in observed_periods}
         if {r['period_start'] for r in records} != expected_starts or len(records) != len(expected_starts):
@@ -119,9 +134,10 @@ def audit_predictions(directory, data, features, reference):
         'future_labels_excluded_from_training': True, 'source_quality_passed': False, 'production_approved': False}
 
 
-def predictive_diagnostics(data, features, scores, outcome, years, horizon=20):
+def predictive_diagnostics(data, features, scores, outcome, years, horizon=20, *, next_open=False):
     rows = []
     dates = data['dates']
+    report_dates = np.concatenate((dates[1:], np.array(['']))) if next_open else dates
     for model, score in scores.items():
         for cohort in ('all', 'discovery', 'cross_section_reserve'):
             member = np.ones(len(data['symbols']), bool) if cohort == 'all' else data['cohort'] == cohort
@@ -136,15 +152,16 @@ def predictive_diagnostics(data, features, scores, outcome, years, horizon=20):
             correlation = np.divide(np.nansum(da*db, axis=1), denom, out=np.full(len(n), np.nan), where=denom>0)
             correlation[n<30] = np.nan
             for year in [*years, 'all']:
-                selected = (dates >= f'{min(years)}-01-01') & (dates < f'{max(years)+1}-01-01')
+                selected = (report_dates >= f'{min(years)}-01-01') & (report_dates < f'{max(years)+1}-01-01')
                 if year != 'all':
-                    selected &= np.char.startswith(dates.astype(str), str(year))
+                    selected &= np.char.startswith(report_dates.astype(str), str(year))
                 values = correlation[selected & np.isfinite(correlation)]
                 rows.append({'model': model, 'cohort': cohort, 'year': year, 'horizon': horizon,
                     'eligible_predictions': int((features['eligible'][selected] & member[None, :] & np.isfinite(score[selected])).sum()),
                     'labeled_predictions': int(usable[selected].sum()), 'labeled_days': len(values),
                     'mean_daily_rank_ic': float(values.mean()) if len(values) else None,
                     'positive_daily_rank_ic_fraction': float((values>0).mean()) if len(values) else None,
+                    **({'date_ownership': 'next_open', 'allocation': 'prediction_diagnostic'} if next_open else {}),
                     'label_contract': f'Overlapping {horizon}-session next-open returns; diagnostic only, not executed profit.'})
     return rows
 
@@ -163,7 +180,12 @@ def main():
     data = load_dataset(args.dataset, 'all')
     features = prepare_features(data)
     scores, outcome, report = audit_predictions(args.experiment, data, features, args.reference_experiment)
-    rows = predictive_diagnostics(data, features, scores, outcome, spec['test_years'], spec['horizon'])
+    horizons = spec.get('diagnostic_horizons', [spec['horizon']])
+    rows = []
+    for horizon in horizons:
+        actual = outcome if horizon == spec['horizon'] else labels(data, features, horizon)[0]
+        rows.extend(predictive_diagnostics(data, features, scores, actual, spec['test_years'], horizon,
+                                           next_open=bool(spec.get('diagnostic_next_open'))))
     pd.DataFrame(rows).to_csv(args.experiment / 'PREDICTIVE_METRICS.csv', index=False)
     dump(args.report, report)
     print(json.dumps({k: v for k, v in report.items() if k != 'checks'}))

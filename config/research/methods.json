@@ -673,6 +673,62 @@
         "仓位",
         "近五年"
       ]
+    },
+    {
+      "method_key": "multi_horizon_signal_and_turnover",
+      "title": "多预测周期与调仓频率的独立比较",
+      "source": {
+        "title": "Multi-Horizon Equity Returns Predictability via Machine Learning",
+        "authors": [
+          "Lenka Nechvátalová"
+        ],
+        "year": 2024,
+        "url": "https://journal.fsv.cuni.cz/article/multi-horizon-equity-returns-predictability-via-machine-learning/",
+        "scope": "美国及其他发达市场、多空组合；原文预测一个月至两年，区别于本项目5日和20日多头账户。"
+      },
+      "finding": "原文比较不同预测周期与交易成本，并用双重排序及买入/保留区间组合预测；预测相关性更高与扣费后收益更高并不等价。",
+      "adaptation": "固定近五年输入，用同一年度训练方式比较5日标签、既有20日标签及二者各半的截面排名融合；分别每5日或20日选股，持仓、风险预算、费用与资金保持一致。保留全部组合，不依测试收益重新加权。",
+      "required_data": [
+        "次日开盘至标签到期日收盘的完整成熟收益",
+        "训练时已公开的价格、成交及盈利预测特征",
+        "同资金和同证券范围的连续现金股数账本"
+      ],
+      "tests": [
+        "验证期与测试期标签隔离",
+        "按下一次开盘日期归属预测年份",
+        "复用的20日预测和共同账户必须逐项一致",
+        "融合只用当日可用模型，不以缺失值回退替代",
+        "分开报告预测标签天数、调仓间隔及20日账户胜率",
+        "逐项核验费用、换手、成交和年内回撤"
+      ],
+      "limitations": [
+        "固定等权排名融合是本项目改编，不是原文双重排序或买入/保留区间的复现。",
+        "5日标签成熟更早，可使用比20日标签近15个交易日的训练观察；这属于预先声明的周期差异。",
+        "调仓频率不等于实际持有期限，排名保留与无法成交都可能延长持仓。",
+        "重叠收益标签的相关性不是交易利润，也不是独立统计样本。",
+        "反复研究的历史样本需要后续前瞻验证，不能仅凭最优历史收益自动接入推荐。"
+      ],
+      "tags": [
+        "多周期",
+        "预测周期",
+        "调仓",
+        "换手",
+        "融合",
+        "短期走势"
+      ],
+      "implementation_status": "predeclared_horizon_and_selection_cadence_comparisons_implemented_research_only",
+      "supporting_evidence": {
+        "title": "Another look at trading costs and short-term reversal profits",
+        "authors": [
+          "Wilma de Groot",
+          "Joop Huij",
+          "Weili Zhou"
+        ],
+        "year": 2012,
+        "url": "https://repub.eur.nl/pub/25718/AnotherLook_2011.pdf",
+        "scope": "2011年接受稿，发表于2012年；美国和欧洲市场的短期反转。",
+        "finding": "限制高成本交易和降低换手能够改变净收益，支持把信号与组合执行分别对照。"
+      }
     }
   ]
 }

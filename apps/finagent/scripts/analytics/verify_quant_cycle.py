@@ -64,12 +64,21 @@ def verify(experiment):
                 raise ValueError('Cost or execution audit differs from the predeclared study')
             if protocol.get('market_risk_model') != study.get('market_risk_model'):
                 raise ValueError('Market-risk model differs from predeclared study')
+            if protocol.get('model_horizons') != study.get('model_horizons'):
+                raise ValueError('Prediction horizon metadata differs from predeclared study')
     for row in table.to_dict('records'):
         path = experiment / 'simulations' / f"{row['cohort']}-cost{row['cost']}-{row['model']}-{row['allocation']}.json.gz"
         with gzip.open(path, 'rt') as stream:
             result = json.load(stream)
         if result.get('protocol_sha256') != completed['protocol_sha256']:
             raise ValueError('Simulation protocol differs')
+        if protocol.get('model_horizons'):
+            from horizon_signals import prediction_horizons
+            declared_rebalance = 20 if row['allocation'] == 'benchmark' else protocol['allocations'][row['allocation']].get('rebalance', 20)
+            if (str(row['prediction_horizons']) != prediction_horizons(protocol, row['model'])
+                    or row['rebalance_sessions'] != result['policy']['rebalance']
+                    or result['policy']['rebalance'] != declared_rebalance or row['horizon'] != 20):
+                raise ValueError('Prediction or rebalance horizon metadata differs')
         if result['policy']['vol_estimator'] in ('market_ewma20', 'market_har20'):
             if risks is None:
                 raise ValueError('Forecast risk policy has no verified inputs')
@@ -155,6 +164,9 @@ def verify(experiment):
                 if (bool(record.is_partial_year) != (year not in complete_years)
                         or record.period_start != dates[indices[0]] or record.period_end != dates[indices[-1]]):
                     raise ValueError('Full-year/partial-year reporting differs from the scored calendar')
+            if protocol.get('model_horizons') and (str(subset.iloc[0].prediction_horizons) != str(row['prediction_horizons'])
+                    or subset.iloc[0].rebalance_sessions != result['policy']['rebalance'] or subset.iloc[0].horizon != 20):
+                raise ValueError('Yearly prediction or rebalance horizon differs')
         positive_years = sum(value > 0 for year, value in year_returns.items() if year in complete_years)
         if row['positive_years'] != positive_years:
             raise ValueError('Positive full-year count differs from NAV')

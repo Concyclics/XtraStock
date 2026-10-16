@@ -65,7 +65,7 @@ class AdaptationTests(unittest.TestCase):
 
     def test_next_open_periods_have_no_overlap_or_gap(self):
         dates = pd.bdate_range('2020-01-01', '2026-10-15').strftime('%Y-%m-%d').to_numpy()
-        for cadence, expected in [('quarterly', 16), ('monthly', 46)]:
+        for cadence, expected in [('annual', 4), ('quarterly', 16), ('monthly', 46)]:
             periods = prediction_periods(dates, [2023, 2024, 2025, 2026], cadence)
             self.assertEqual(len(periods), expected)
             ownership = np.zeros(len(dates), int)
