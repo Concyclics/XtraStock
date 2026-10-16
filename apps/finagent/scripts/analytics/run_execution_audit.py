@@ -24,7 +24,14 @@ from strategy_research import Policy, backtest, load_dataset, prepare_features
 
 def compare_cashbook(actual, original):
     original = {key: value for key, value in original.items() if key != 'protocol_sha256'}
-    actual = {key: value for key, value in actual.items() if key != 'execution_trace'}
+    actual = {key: value for key, value in actual.items() if key not in ('execution_trace', 'execution_audit', 'protocol_sha256')}
+    # New optional policy fields preserve the exact old decision when defaulted.
+    # Only an absent old field with that exact default can be omitted; a changed
+    # fraction/band or any old policy value must still fail the regression.
+    actual['policy'] = dict(actual['policy'])
+    for key, default in (('adjustment_fraction', 1.), ('relative_no_trade_band', 0.)):
+        if key not in original['policy'] and actual['policy'].get(key) == default:
+            actual['policy'].pop(key)
     if actual != original:
         changed = sorted(key for key in set(actual) | set(original) if actual.get(key) != original.get(key))
         raise ValueError('Cashbook changed while tracing: ' + ', '.join(changed))

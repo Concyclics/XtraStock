@@ -39,6 +39,8 @@ def protocol(dataset, reference, capital, members, study_path):
     code = Path(__file__).parent
     spec.update(version='portfolio-cycle-v1', portfolio_evaluation_contract=1, capital=capital,
         models=study['models'], cohorts=study['cohorts'], allocations=study['allocations'],
+        execution_audit=bool(study.get('execution_audit', False)),
+        cost_bps_per_side=study.get('cost_bps_per_side', spec['cost_bps_per_side']),
         comparisons=len(study['models'])*len(study['allocations']), study_config_sha256=checksum(study_path),
         cohort_members_sha256=checksum(members), reference_protocol_sha256=checksum(original),
         reference_predictions_sha256=receipt['sha256'], reference_training_folds_sha256=checksum(reference / 'TRAINING_FOLDS.json'),
@@ -47,7 +49,7 @@ def protocol(dataset, reference, capital, members, study_path):
         scope='Previously inspected historical reconstruction; all-universe is an operational projection, not an untouched holdout.',
         benchmark_note='Equal-weight benchmark uses fractional shares as a reference; model portfolios retain round-lot constraints.',
         code={name: checksum(code/name) for name in ('run_portfolio_cycle.py', 'run_quant_cycle.py',
-             'strategy_research.py', 'strategy_dataset.py', 'quant_learning.py')})
+             'strategy_research.py', 'strategy_dataset.py', 'quant_learning.py', 'execution_diagnostics.py', 'verify_quant_cycle.py')})
     return spec
 
 

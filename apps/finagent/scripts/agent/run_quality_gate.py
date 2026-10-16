@@ -48,7 +48,7 @@ for module in (
     'test_graph_writer_wait','test_graph_entity_refresh','test_graph_tool_bounded_history',
     'test_repository_ops','test_search_identity_index',
     'test_strategy_research','test_quant_learning','test_quant_tree_learning','test_portfolio_risk','test_quant_reporting','test_portfolio_cycle',
-    'test_quant_method_library','test_research_history_collection','test_delisting_evidence','test_quant_adaptation','test_execution_diagnostics',
+    'test_quant_method_library','test_research_history_collection','test_delisting_evidence','test_quant_adaptation','test_execution_diagnostics','test_turnover_policy',
 ):
     COMMANDS.append([sys.executable, "-m", "unittest", "tests."+module, "-v"])
 

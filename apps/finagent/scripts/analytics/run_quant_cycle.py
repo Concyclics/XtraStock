@@ -174,7 +174,11 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
                     raise ValueError('Simulation checkpoint mismatch')
             else:
                 scope_features['score'] = {name: score}
-                result = backtest(data, scope_features, policy, start, end, keep_trades=True)
+                result = backtest(data, scope_features, policy, start, end, keep_trades=True,
+                                  keep_fills=bool(spec.get('execution_audit')))
+                if spec.get('execution_audit'):
+                    from execution_diagnostics import audit_execution
+                    result['execution_audit'] = audit_execution(result)
                 result['protocol_sha256'] = protocol_hash
                 temp = file.with_suffix('.tmp')
                 with gzip.open(temp, 'wt') as stream:
@@ -200,6 +204,14 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
                    'complete_evaluation_years': len(complete_years),
                    'evaluation_start': result['dates'][0], 'evaluation_end': result['dates'][-1],
                    'production_approved': False}
+            if spec.get('execution_audit'):
+                counts = result['execution_audit']['counts']
+                row.update({key: counts.get(key, 0) for key in ('fill_count', 'share_volume_breach',
+                    'lower_bound_only_breach', 'observed_notional_breach', 'unknown_daily_volume')})
+                row.update(share_volume_breach_rate=counts.get('share_volume_breach', 0) / max(1, counts['fill_count']),
+                    fees_paid=metric['fees_paid'], annual_traded_notional_over_nav=metric['annual_oneway_turnover'],
+                    adjustment_fraction=policy.adjustment_fraction, relative_no_trade_band=policy.relative_no_trade_band,
+                    holding_buffer=policy.holding_buffer, execution_verified=False)
             goal = spec['primary_objective']
             row['numerical_target_pass'] = (row['net_cagr'] > goal['net_cagr_above'] and row['maximum_drawdown'] <= goal['max_drawdown_at_most']
                                              and (row['period_win_rate'] or 0) >= goal['period_win_rate_at_least'] and row['positive_years'] >= goal['positive_years_at_least']
@@ -237,7 +249,13 @@ def evaluate_scores(data, features, scores, spec, out, started, protocol_hash):
         'result_artifacts': {name: checksum(out/name) for name in ('COSTED_RESULTS.csv', 'YEARLY_RESULTS.csv')},
         'metric_units': {**{key: 'fraction' for key in ('net_return', 'net_cagr', 'maximum_drawdown', 'period_win_rate',
                                                      'closed_trade_win_rate', 'cagr_excess', 'win_rate_difference')},
-                         'initial_cash': 'CNY', 'holdings': 'securities', 'cost': 'bps_per_side'},
+                         'initial_cash': 'CNY', 'holdings': 'securities', 'cost': 'bps_per_side',
+                         'fees_paid': 'CNY', 'share_volume_breach_rate': 'fraction',
+                         'annual_traded_notional_over_nav': 'annual_buy_plus_sell_notional_over_NAV',
+                         'adjustment_fraction': 'fraction', 'relative_no_trade_band': 'fraction',
+                         'holding_buffer': 'rank_cutoff_multiplier',
+                         **{key: 'simulated_fills' for key in ('fill_count', 'share_volume_breach',
+                             'lower_bound_only_breach', 'observed_notional_breach', 'unknown_daily_volume')}},
         'comparison_dimensions': ['model', 'allocation', 'cohort', 'cost', 'year', 'initial_cash', 'holdings'],
         'methodology_notes': [spec['accounting'], spec['scope'], 'Cost is basis points on each side.',
                               f"{len(spec['models']) * len(allocations)} fixed candidates plus two benchmarks; all results retained.",

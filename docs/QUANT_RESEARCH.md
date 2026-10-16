@@ -35,8 +35,10 @@ Methods and offline results do not become approved forecasts merely by entering 
 Experiment tool pages carry shared project methodology once in the catalog
 metadata. Each citable row retains units for its own metrics, year-specific
 notes, its gate status and a reference to matching shared methodology. Unique
-notes remain on the row. This keeps the normal five-result page and its evidence
-inside the tool budget as study contracts grow.
+notes remain on the row. Wide pages can still omit duplicate top-level rows to
+fit the budget; consumers use complete citation-bound values. Acceptance checks
+their expected count, exact metrics/units and EvidenceStore ingestion against
+SQL, not the presence of a second duplicate copy in `rows`.
 
 Use `research_asset_registry.py --project PROJECT_NAME` to register one completed
 project. Put `EXPERIMENT_CONTRACT.json` at the project root, with artifact paths
@@ -228,11 +230,48 @@ not an executed sale, and stale terminal marks remain explicit. Results across
 capital, cost and allocation settings are correlated comparisons, not separate
 independent trials. The fixed five-year input window is unchanged.
 
-The method catalog also records
+## Fixed turnover-rule comparisons
+
+`config/research/turnover.json` freezes comparisons on the existing annual
+linear/tree predictions: unchanged execution, a 25% relative target band,
+50% partial adjustment, and a wider incumbent rank buffer with the same band.
+The complete grid includes both capital levels, three portfolio constructions,
+three security scopes and two costs. Both references remain at matched capital
+and costs; all results are retained. It does not retrain on observed test returns.
+
+```bash
+python apps/finagent/scripts/analytics/run_portfolio_cycle.py \
+  --dataset .local/research/market \
+  --reference-experiment .local/research/adaptation/predictions \
+  --capital 1000000 \
+  --study-config config/research/turnover.json \
+  --output .local/research/turnover-capital-1000000
+python apps/finagent/scripts/analytics/verify_quant_cycle.py \
+  --experiment .local/research/turnover-capital-1000000 \
+  --report .local/research/turnover-capital-1000000-check.json
+```
+
+`adjustment_fraction` moves shares toward each positive target at a fixed rate.
+`relative_no_trade_band` suppresses changes within the chosen fraction of target
+shares. Zero targets exit fully. Reductions needed to meet the selected gross
+allocation or concentration cap bypass both rules; increases share the remaining
+gross budget. Liquidity, opening-gap guards and lots still constrain fills.
+Partial entry can leave cash and changes exposure, so a lower fee alone does not
+establish better performance. Risk is estimated on the selected target basket;
+actual weights and unfilled reductions can differ.
+
+`execution_audit=true` adds fill evidence and independent account attribution
+to every replay. The verifier checks allocation parameters, cost/turnover and
+capacity summaries against the saved policy and fill records. Prior control
+comparisons omit only the new default fraction/band when absent in old metadata;
+non-default values and changes to any legacy cashbook field fail.
+
+The method catalog records
 [Gârleanu and Pedersen's dynamic trading model](https://nbgarleanu.github.io/DynTrad.pdf)
 and its [corrigendum](https://nbgarleanu.github.io/DynTrad_corrigendum.pdf).
-Partial adjustment toward a target is a proposed follow-up experiment, not an
-implemented optimal-trading algorithm or a measured return improvement here.
+The implemented rules are heuristics inspired by the trading-cost tradeoff.
+They do not reproduce its closed-form optimal aim portfolio, calibrated impact
+model or optimal trading speed. Compare outcomes before claiming improvement.
 
 The separate raw-history collector defaults to the recent five years, includes
 known delisting evidence, preserves empty/error responses and provides a normal

@@ -39,12 +39,48 @@ class Policy:
     vol_window: int = 60
     vol_min_observations: int = 40
     covariance_shrinkage: float = .25
+    adjustment_fraction: float = 1.0
+    relative_no_trade_band: float = 0.0
 
     @property
     def name(self):
         return (f'{self.family}-h{self.rebalance}-k{self.size}-{self.regime}'
                 + (f'-v{self.target_vol}' if self.target_vol else '')
-                + (f'-{self.vol_estimator}-w{self.vol_window}' if self.vol_estimator != 'market' else ''))
+                + (f'-{self.vol_estimator}-w{self.vol_window}' if self.vol_estimator != 'market' else '')
+                + (f'-step{self.adjustment_fraction}' if self.adjustment_fraction != 1 else '')
+                + (f'-band{self.relative_no_trade_band}' if self.relative_no_trade_band else ''))
+
+
+def turnover_target(current, target, prices, equity, allocation, max_weight, fraction=1., band=0.):
+    """Causal heuristic for partial adjustment and a relative target band.
+
+    Full exits, concentration reductions and reductions needed to meet a lower
+    gross allocation bypass delay. Increases share the remaining gross budget.
+    Execution constraints can still prevent reductions. This does not implement
+    the optimal dynamic trading solution or certify the actual portfolio risk.
+    """
+    if not 0 < fraction <= 1 or not 0 <= band < 1:
+        raise ValueError('invalid turnover policy')
+    if fraction == 1 and band == 0:
+        return target
+    active = target > 0
+    adjusted = np.where(active, current + fraction * (target - current), 0.)
+    within = active & (np.abs(target - current) <= band * target)
+    adjusted = np.where(within, current, adjusted)
+    marked = np.nan_to_num(prices)
+    reduce_gross = float(current @ marked) > equity * allocation + 1e-7
+    over_cap = current * marked > equity * max_weight + 1e-7
+    required_reduction = (target < current) & (reduce_gross | over_cap)
+    adjusted = np.where(required_reduction, target, adjusted)
+    # Bands may suppress sells while permitting buys; budget the latter so the
+    # ideal filled target cannot exceed the same predeclared gross allocation.
+    retained = np.minimum(current, adjusted)
+    increases = np.maximum(0., adjusted - current)
+    budget = max(0., equity * allocation - float(retained @ marked))
+    wanted = float(increases @ marked)
+    if wanted > budget:
+        adjusted = retained + increases * (budget / wanted)
+    return adjusted
 
 
 def portfolio_volatility(returns, signal_index, columns, weights, window=60, minimum=40, shrinkage=.25):
@@ -266,6 +302,8 @@ def backtest(d,f,policy,start,end,*,keep_trades=False,keep_fills=False):
     if policy.vol_estimator not in ('market','portfolio'):raise ValueError('unknown volatility estimator')
     if policy.vol_min_observations<2 or policy.vol_window<policy.vol_min_observations or not 0<=policy.covariance_shrinkage<=1:
         raise ValueError('invalid portfolio risk estimator')
+    if not 0<policy.adjustment_fraction<=1 or not 0<=policy.relative_no_trade_band<1:
+        raise ValueError('invalid turnover policy')
     dates=d['dates'];indices=np.flatnonzero((dates>=start)&(dates<=end))
     if not len(indices) or indices[0]<policy.signal_lag:raise ValueError('insufficient warmup/calendar')
     n=len(d['symbols']);q=np.zeros(n);cash=policy.initial_cash;receivables=0.;payables={}
@@ -343,6 +381,8 @@ def backtest(d,f,policy,start,end,*,keep_trades=False,keep_fills=False):
                 good=order[np.isfinite(open_price[order])&(open_price[order]>0)]
                 good_weights=weights[np.isfinite(open_price[order])&(open_price[order]>0)]
                 target[good]=np.floor(equity*allocation*good_weights/open_price[good]/lots[good])*lots[good]
+            target=turnover_target(q,target,open_price,equity,allocation,policy.max_weight,
+                                   policy.adjustment_fraction,policy.relative_no_trade_band)
             with np.errstate(divide='ignore',invalid='ignore'):
                 gap=open_price/reference-1
             cap=np.minimum(np.nan_to_num(f['adv'][s]),amount[t-1])*policy.participation

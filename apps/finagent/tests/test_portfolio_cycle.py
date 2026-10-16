@@ -21,6 +21,8 @@ from tests.test_strategy_research import toy
 
 
 class PortfolioCycleTests(unittest.TestCase):
+    execution_audit = False
+
     def setUp(self):
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
@@ -39,6 +41,10 @@ class PortfolioCycleTests(unittest.TestCase):
             'accounting': 'Synthetic test', 'scope': 'Synthetic test',
             'primary_objective': {'net_cagr_above': .2, 'max_drawdown_at_most': .25,
                                   'period_win_rate_at_least': .55, 'positive_years_at_least': 3}}
+        if self.execution_audit:
+            self.spec['execution_audit'] = True
+            self.spec['allocations']['one']['adjustment_fraction'] = .5
+            self.spec['allocations']['three']['relative_no_trade_band'] = .25
         dump(self.path / 'PROTOCOL.json', self.spec)
         self.protocol_hash = checksum(self.path / 'PROTOCOL.json')
         np.savez(self.path / 'PREDICTIONS.npz', **self.scores)
@@ -104,6 +110,34 @@ class PortfolioCycleTests(unittest.TestCase):
         spec['allocations']['one']['cost_bps'] = 0
         with self.assertRaisesRegex(ValueError, 'declared cost or capital'):
             evaluate_scores(self.data, self.features, self.scores, spec, self.path, 'test', self.protocol_hash)
+
+
+class AuditedPortfolioCycleTests(PortfolioCycleTests):
+    execution_audit = True
+
+    def test_changed_turnover_rule_is_rejected_independently(self):
+        result = self.load_simulation('all', 'candidate', 'one')
+        result['policy']['adjustment_fraction'] = .2
+        with gzip.open(self.path / 'simulations/all-cost15-candidate-one.json.gz', 'wt') as f:
+            json.dump(result, f)
+        with self.assertRaisesRegex(ValueError, 'declared policy: adjustment_fraction'):
+            verify(self.path)
+
+    def test_changed_fill_fee_is_rejected_independently(self):
+        result = self.load_simulation('all', 'candidate', 'one')
+        result['execution_trace']['fills'][0]['fee'] += 1
+        with gzip.open(self.path / 'simulations/all-cost15-candidate-one.json.gz', 'wt') as f:
+            json.dump(result, f)
+        with self.assertRaisesRegex(ValueError, 'Fill fee does not reconcile'):
+            verify(self.path)
+
+    def test_capacity_summary_cannot_hide_fill_diagnostics(self):
+        path = self.path / 'COSTED_RESULTS.csv'
+        table = pd.read_csv(path)
+        table.loc[table.model == 'candidate', 'share_volume_breach'] += 1
+        table.to_csv(path, index=False)
+        with self.assertRaisesRegex(ValueError, 'summary differs from fill evidence'):
+            verify(self.path)
 
 
 if __name__ == '__main__':

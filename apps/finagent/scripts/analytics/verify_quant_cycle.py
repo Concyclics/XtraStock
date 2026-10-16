@@ -55,6 +55,9 @@ def verify(experiment):
             if (protocol['capital'] not in study['capital_levels']
                     or any(protocol[key] != study[key] for key in ('models', 'cohorts', 'allocations'))):
                 raise ValueError('Portfolio parameters differ from the predeclared study')
+            if ('cost_bps_per_side' in study and protocol['cost_bps_per_side'] != study['cost_bps_per_side']) or (
+                    bool(protocol.get('execution_audit')) != bool(study.get('execution_audit'))):
+                raise ValueError('Cost or execution audit differs from the predeclared study')
     for row in table.to_dict('records'):
         path = experiment / 'simulations' / f"{row['cohort']}-cost{row['cost']}-{row['model']}-{row['allocation']}.json.gz"
         with gzip.open(path, 'rt') as stream:
@@ -72,16 +75,44 @@ def verify(experiment):
                 raise ValueError('Actual and reported capital differ from protocol')
             if policy['cost_bps'] != row['cost']:
                 raise ValueError('Actual cost differs from reported cost')
+            if policy['family'] != row['model']:
+                raise ValueError('Actual model differs from reported model')
             if row['allocation'] == 'benchmark':
                 holdings = len(cohort_members[row['cohort']]) if row['model'] == 'equal_weight' else 40
             else:
                 holdings = protocol['allocations'][row['allocation']].get('size', protocol.get('holdings', 40))
+                expected_policy = {'max_weight': protocol.get('max_weight', .05),
+                    'holding_buffer': protocol.get('holding_buffer', 1.5),
+                    'adjustment_fraction': 1., 'relative_no_trade_band': 0.,
+                    **protocol['allocations'][row['allocation']]}
+                for key, expected_value in expected_policy.items():
+                    default = {'adjustment_fraction': 1., 'relative_no_trade_band': 0.}.get(key)
+                    if policy.get(key, default) != expected_value:
+                        raise ValueError('Actual allocation differs from declared policy: ' + key)
             if policy['size'] != holdings or row['holdings'] != holdings:
                 raise ValueError('Actual and reported holdings differ from protocol')
             allowed = cohort_members[row['cohort']]
             if any(not set(step['selected_symbols']) <= allowed or len(step['selected_symbols']) > holdings
                    for step in result['rebalance_log']):
                 raise ValueError('Selected portfolio differs from declared cohort or holdings')
+        if protocol.get('execution_audit'):
+            from execution_diagnostics import audit_execution
+            calculated = audit_execution(result)
+            if calculated != result.get('execution_audit'):
+                raise ValueError('Saved execution audit differs from fill evidence')
+            for key in ('fill_count', 'share_volume_breach', 'lower_bound_only_breach',
+                        'observed_notional_breach', 'unknown_daily_volume'):
+                if row[key] != calculated['counts'].get(key, 0):
+                    raise ValueError('Execution summary differs from fill evidence: ' + key)
+            rate = calculated['counts'].get('share_volume_breach', 0) / max(1, calculated['counts']['fill_count'])
+            if not np.isclose(row['share_volume_breach_rate'], rate, atol=1e-12, rtol=0):
+                raise ValueError('Capacity rate differs from fill evidence')
+            for key in ('adjustment_fraction', 'relative_no_trade_band', 'holding_buffer'):
+                if row[key] != result['policy'][key]:
+                    raise ValueError('Turnover metadata differs from actual policy: ' + key)
+            if (not np.isclose(row['fees_paid'], calculated['accounting']['fees'], rtol=1e-12, atol=1e-7)
+                    or not np.isclose(row['annual_traded_notional_over_nav'], np.mean(result['turnover']) * 252, rtol=1e-12, atol=1e-10)):
+                raise ValueError('Trading cost/turnover summary differs from cashbook')
         calendar_days = (date.fromisoformat(dates[-1]) - date.fromisoformat(dates[0])).days + 1
         checks = {'net_return': nav[-1] / nav[0] - 1,
                   'net_cagr': (nav[-1] / nav[0]) ** (365.25 / calendar_days) - 1,
