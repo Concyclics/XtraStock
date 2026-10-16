@@ -1,0 +1,9 @@
+{
+  "version": "execution-audit-v1",
+  "capital_levels": [1000000, 10000000],
+  "models": ["annual_tree_blend"],
+  "cohorts": ["all", "discovery", "cross_section_reserve"],
+  "cost_bps_per_side": [15, 30],
+  "allocations": ["k100_equal", "k100_portfolio_risk18", "k100_portfolio_risk24"],
+  "selection": "Audit all 36 declared annual-model controls. No model refit, parameter search, execution change or automatic promotion."
+}

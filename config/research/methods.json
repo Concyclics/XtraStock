@@ -93,7 +93,7 @@
         "scope": "机构实际交易与多个发达股票市场"
       },
       "finding": "不同异常收益策略的成本和容量差异明显，毛收益不能替代可实施的净收益评估。",
-      "adaptation": "对旧持仓设置固定排名保留区间，限制集中度和历史成交参与率，同时报告两档费用及成交不足。",
+      "adaptation": "旧持仓设置固定排名保留区间，限制集中度和历史成交参与率，报告两档费用；逐笔记录后分别核对股数参与率、观察成交额和成交额估算下限，再将手续费、净分红、拆股和期末持仓对回净值。",
       "required_data": [
         "原始价格",
         "历史成交额",
@@ -105,19 +105,29 @@
         "保留全部被拒绝和未成交订单",
         "15和30基点每边成本",
         "缓冲前后换手对照",
-        "不得用当天总成交量预先决定开盘订单"
+        "不得用当天总成交量预先决定开盘订单",
+        "审计开关不得改变任何旧账本字段",
+        "股数参与率与成交额下限超限分开统计",
+        "公司行动、手续费及期末持仓损益必须与净值变化相等"
       ],
       "limitations": [
         "固定基点费用不是实际冲击成本估计",
-        "开盘集合竞价容量和价格队列需要额外数据"
+        "开盘集合竞价容量和价格队列需要额外数据",
+        "超过成交额估算下限不能直接称为实际股数超限",
+        "日成交量足够不能证明开盘竞价可成交",
+        "按末次报价计量的停牌持仓损益不等于实际清算收益"
       ],
       "tags": [
         "交易",
         "换手",
         "成本",
         "容量",
-        "选股"
-      ]
+        "选股",
+        "成交审计",
+        "股数参与率",
+        "损益归因"
+      ],
+      "implementation_status": "fill_trace_and_independent_cashbook_audit_implemented_research_only"
     },
     {
       "method_key": "value_momentum_diversification",
@@ -510,7 +520,11 @@
       "title": "市场规律变化下的滚动重训与近期样本权重",
       "source": {
         "title": "DoubleAdapt: A Meta-learning Approach to Incremental Learning for Stock Trend Forecasting",
-        "authors": ["Lifan Zhao", "Shuming Kong", "Yanyan Shen"],
+        "authors": [
+          "Lifan Zhao",
+          "Shuming Kong",
+          "Yanyan Shen"
+        ],
         "year": 2023,
         "url": "https://arxiv.org/abs/2306.09862",
         "scope": "股票预测中的分布变化与元学习；本项目先测试滚动重训对照，未复现论文的双适配器"
@@ -539,7 +553,59 @@
         "已反复查看的历史样本不能当作新留出集",
         "算术核验通过不能消除原始数据、成交容量或选择偏差"
       ],
-      "tags": ["滚动重训", "近期权重", "概念漂移", "月度", "季度", "近五年", "预测"]
+      "tags": [
+        "滚动重训",
+        "近期权重",
+        "概念漂移",
+        "月度",
+        "季度",
+        "近五年",
+        "预测"
+      ]
+    },
+    {
+      "method_key": "dynamic_partial_adjustment",
+      "title": "考虑信号衰减与交易成本的渐进调仓",
+      "source": {
+        "title": "Dynamic Trading with Predictable Returns and Transaction Costs",
+        "authors": [
+          "Nicolae Gârleanu",
+          "Lasse Heje Pedersen"
+        ],
+        "year": 2013,
+        "url": "https://nbgarleanu.github.io/DynTrad.pdf",
+        "scope": "作者提供的2012年工作稿，发表于2013年Journal of Finance；商品期货案例和特定成本、风险模型"
+      },
+      "corrigendum": "https://nbgarleanu.github.io/DynTrad_corrigendum.pdf",
+      "finding": "在作者的预测与成本假设下，最优策略同时考虑未来目标的移动和信号衰减，并分步靠近目标组合。",
+      "adaptation": "拟在近五年的冻结预测上预先固定有限的渐进调仓与不交易区间对照，考察成本、跟踪误差和错过收益；先完成成交口径审计，不从已见收益中反推最优调整比例。",
+      "implementation_status": "proposed_not_yet_backtested",
+      "required_data": [
+        "滞后可得的股票预测与风险",
+        "股数和现金账本",
+        "成交成本和容量证据",
+        "信号保持期及衰减的训练期估计"
+      ],
+      "tests": [
+        "与立即调仓使用相同预测和起始资金",
+        "换手下降必须同时比较净收益与回撤",
+        "不能使用当日全部成交量事先下单",
+        "先固定参数，再保留全部测试结果"
+      ],
+      "limitations": [
+        "固定比例渐进调仓并不等于复现论文的闭式最优解",
+        "论文的商品期货结果不能直接推出A股收益",
+        "一般协方差情形应检查作者对附录A15公式的勘误",
+        "该方案尚未在本地回测，不能作为收益依据"
+      ],
+      "tags": [
+        "交易",
+        "渐进调仓",
+        "信号衰减",
+        "成本",
+        "组合",
+        "近五年"
+      ]
     }
   ]
 }

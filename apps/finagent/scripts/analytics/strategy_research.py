@@ -244,7 +244,14 @@ def action_schedule(d):
     return by_day,gaps
 
 
-def backtest(d,f,policy,start,end,*,keep_trades=False):
+def backtest(d,f,policy,start,end,*,keep_trades=False,keep_fills=False):
+    """Replay an account; optional fill evidence never participates in decisions.
+
+    ``ex_post_capacity_breach`` is the legacy observed-or-lower-bound NOTIONAL
+    diagnostic, not necessarily a breach of actual share-volume participation.
+    Use execution_diagnostics.audit_execution on ``execution_trace`` to separate
+    these meanings. Preserve the legacy counter for old cashbook comparisons.
+    """
     if d.get('primary_since') and start<d['primary_since']:
         raise ValueError('Feature warm-up rows cannot enter scored evaluation')
     if policy.family not in f['score'] or policy.rebalance not in (5,10,20,40,60):raise ValueError('unknown policy')
@@ -272,12 +279,20 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
     amount,amount_bound=liquidity_amount(d);bound_fills=0
     lots=np.where(np.char.startswith(d['symbols'],'688'),200.,100.) if policy.round_lots else np.full(n,1e-8)
     order=np.empty(0,dtype=int)
+    fill_log=[];action_log=[]
+    def finite(value):
+        return float(value) if np.isfinite(value) else None
     for offset,t in enumerate(indices):
         previous_q=q.copy();reference=last.copy()
         for j,extra,dividend,pay,quality in events.get(int(t),[]):
             reference[j]=(reference[j]-dividend)/(1+extra) if reference[j]>0 else 0.
             last[j]=reference[j]
             if q[j]<=1e-7:continue
+            if keep_fills:
+                action_log.append({'date':str(dates[t]),'symbol':str(d['symbols'][j]),
+                    'shares_before':float(q[j]),'extra_shares_per_share':extra,
+                    'net_dividend':float(q[j]*dividend*(1-policy.dividend_tax)),
+                    'payment_index':pay,'quality':quality})
             entitlement=q[j]*dividend*(1-policy.dividend_tax)
             q[j]*=1+extra
             if entitlement:
@@ -331,6 +346,7 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
             with np.errstate(divide='ignore',invalid='ignore'):
                 gap=open_price/reference-1
             cap=np.minimum(np.nan_to_num(f['adv'][s]),amount[t-1])*policy.participation
+            if keep_fills:prior_cap=cap.copy()
             can_sell=tradable&(gap>-.048)&(reference>0)
             can_buy=tradable&(gap<.048)&(reference>0)
             desired_sell=np.maximum(0,q-target)
@@ -365,6 +381,19 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
             traded_notional=np.nan_to_num((sells+buys)*open_price)
             blocked['ex_post_capacity_breach']+=int(np.sum(filled&(traded_notional>amount[t]*policy.participation+1e-7)))
             blocked['ex_post_no_volume_fill']+=int(np.sum(filled&(~np.isfinite(d['volume'][t])|(d['volume'][t]<=0))))
+            if keep_fills:
+                for side,quantities in (('sell',sells),('buy',buys)):
+                    for j in np.flatnonzero(quantities>1e-7):
+                        notional=float(quantities[j]*open_price[j])
+                        fill_log.append({'date':str(dates[t]),'signal_date':str(dates[s]),
+                            'symbol':str(d['symbols'][j]),'side':side,'shares':float(quantities[j]),
+                            'price':float(open_price[j]),'notional':notional,'fee':notional*fee,
+                            'prior_liquidity_cap_notional':float(prior_cap[j]),
+                            'prior_amount_lower_bound':bool(amount_bound[t-1,j]),
+                            'daily_volume_lots':finite(d['volume'][t,j]),
+                            'daily_amount_observed':finite(d['amount'][t,j]),
+                            'daily_low':finite(d['low'][t,j]),'daily_high':finite(d['high'][t,j]),
+                            'daily_quality':int(d['quality'][t,j])})
             turnover=float(sold.sum()+amounts.sum()/(1+fee))/equity
         else:turnover=0.
         minimum_cash=min(minimum_cash,cash)
@@ -409,6 +438,12 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
          'exposure':exposure,'turnover':daily_turnover,'version':VERSION,'production_approved':False,
          'execution_assumption':'printed next open; only prior-session sizing/liquidity; gap-limit proxy; no auction/order-book verification'}
     if keep_trades:out.update(trades=trades,rebalance_log=step_log)
+    if keep_fills:
+        out['execution_trace']={'version':'execution-trace-v1','volume_unit':'lots_of_100_shares',
+            'fills':fill_log,'corporate_actions':action_log,'terminal_positions':[
+                {'symbol':str(d['symbols'][j]),'shares':float(q[j]),'mark':float(last[j]),
+                 'marked_value':float(q[j]*last[j]),'liquidation_fee_provision':float(q[j]*last[j]*fee),
+                 'stale_sessions':int(stale[j])} for j in np.flatnonzero(q>1e-7)]}
     return out
 
 

@@ -187,15 +187,52 @@ change. It does not implement the data/model meta-adapters in
 label maturity and limitations of its online update interval. Historical
 comparisons already inspected during research remain exploratory.
 
-Opening orders use only prior-session liquidity and an observed open. The
-reported same-day capacity breaches are unresolved execution errors, not proven
-auction fills. Current security-master flags, historical trading states and
+Opening orders use only prior-session liquidity and an observed open. The legacy
+`ex_post_capacity_breach` counter compares filled notional with observed turnover
+or its conservative daily-low lower bound. Exceeding that lower bound alone does
+not prove a breach of share-volume participation. Current security-master flags, historical trading states and
 corporate-action revisions still require independent checks. Arithmetic
 verification does not certify these inputs or market execution.
 When a missing historical price is recovered, subsequent total-return factors
 inherit that input's availability time. A late ex-date price cannot change a
 factor while leaving its system-knowledge boundary in the past. The PostgreSQL
 revision fixture tests this propagation using temporary tables and rollback.
+
+## Fill evidence and account attribution
+
+`run_execution_audit.py` replays the declared annual-model controls from a
+completed adaptation experiment. It refuses to overwrite its output directory
+and compares every legacy cashbook field against the frozen account. No order,
+signal or fee changes are permitted during this diagnostic replay.
+
+```bash
+python apps/finagent/scripts/analytics/run_execution_audit.py \
+  --dataset .local/research/market \
+  --reference .local/research/adaptation \
+  --output .local/research/execution-audit
+```
+
+Optional `backtest(..., keep_fills=True)` records individual simulated fills,
+held corporate actions and terminal shares. The independent audit distinguishes
+share participation, observed-notional participation, lower-bound exceedances,
+missing volume and inconsistent amount/volume/range evidence. Canonical volume
+is in lots of 100 shares. Current-day outcome fields classify completed simulated
+fills only; they never affect an opening order. All legacy counters remain
+unchanged for reproducibility. Daily-volume compatibility cannot establish
+opening-auction capacity, queue priority or actual execution prices.
+
+Asset P&L reconciles purchases, sales, fees, net dividend entitlements and
+terminal marked positions to the NAV change. Dividend receivables count once at
+entitlement, not again on settlement. The final liquidation fee is a provision,
+not an executed sale, and stale terminal marks remain explicit. Results across
+capital, cost and allocation settings are correlated comparisons, not separate
+independent trials. The fixed five-year input window is unchanged.
+
+The method catalog also records
+[Gârleanu and Pedersen's dynamic trading model](https://nbgarleanu.github.io/DynTrad.pdf)
+and its [corrigendum](https://nbgarleanu.github.io/DynTrad_corrigendum.pdf).
+Partial adjustment toward a target is a proposed follow-up experiment, not an
+implemented optimal-trading algorithm or a measured return improvement here.
 
 The separate raw-history collector defaults to the recent five years, includes
 known delisting evidence, preserves empty/error responses and provides a normal
