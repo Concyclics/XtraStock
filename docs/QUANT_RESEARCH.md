@@ -579,3 +579,63 @@ These are historically reconstructed financial inputs. Better ranking metrics
 do not establish better costed account returns; neither establishes an
 untouched prospective result. Repeatedly inspected years remain exploratory,
 and the balanced return/drawdown/win-rate gates do not change.
+
+
+## Financial value/context controls and seed repetitions
+
+`financial_controls.json` separates the original 72 columns, full profitability
+(82), availability/report context without numeric financial ranks (79), and
+profitability ranks/masks without report context (78). The last two are slices
+of the verified financial definition. Numeric changes cannot enter the context
+control; report age/duration changes cannot enter the no-context control.
+
+Original/full-profitability predictions retain their verified seed 261016.
+Their learners are also fitted with seeds 261017 and 261018. All seed results
+are retained. Optional seeds are isolated parameter copies, checked in fold
+receipts and actual saved models; changing tree randomness cannot change ridge
+parameters. The study does not choose the most profitable seed.
+
+Before using a prior reference after a seed-API extension, verify compatibility:
+
+```sh
+.venv/bin/python apps/finagent/scripts/analytics/verify_learner_defaults.py \
+  --reference-experiment "$VERIFIED_FINANCIAL_PREDICTIONS" \
+  --report "$LEARNER_COMPATIBILITY_REPORT"
+.venv/bin/python apps/finagent/scripts/analytics/run_financial_controls.py \
+  --dataset "$FROZEN_MARKET_PANEL" --forecasts "$FROZEN_EPS_FEATURES" \
+  --reference-experiment "$VERIFIED_FINANCIAL_PREDICTIONS" \
+  --financial-panel "$FINANCIAL_PANEL_OUTPUT" \
+  --financial-verification "$FINANCIAL_VERIFICATION_REPORT" \
+  --learner-compatibility "$LEARNER_COMPATIBILITY_REPORT" \
+  --study-config config/research/financial_controls.json \
+  --output "$FINANCIAL_CONTROLS_OUTPUT"
+.venv/bin/python apps/finagent/scripts/analytics/verify_financial_controls.py \
+  --experiment "$FINANCIAL_CONTROLS_OUTPUT" \
+  --dataset "$FROZEN_MARKET_PANEL" --forecasts "$FROZEN_EPS_FEATURES" \
+  --reference-experiment "$VERIFIED_FINANCIAL_PREDICTIONS" \
+  --financial-panel "$FINANCIAL_PANEL_OUTPUT" \
+  --financial-verification "$FINANCIAL_VERIFICATION_REPORT" \
+  --learner-compatibility "$LEARNER_COMPATIBILITY_REPORT" \
+  --report "$FINANCIAL_CONTROLS_VERIFICATION"
+```
+
+The compatibility probe checks unchanged feature/split implementations and fits
+one genuine synthetic annual fold with the recorded and current default
+learners. Fitted parameters, prediction arrays and serialized trees must match
+exactly. Only the validation-loss scalar permits absolute reduction roundoff
+up to 1e-14; model-selection iterations cannot change. This probe is not a new
+historical baseline fit. Frozen historical predictions and 96 shared account
+controls are checked independently. The original financial ablation entrypoint
+also accepts `--learner-compatibility` when its reference code predates the API.
+
+Eight fixed scores, three allocations, two benchmarks, two capitals, three
+cohorts and two costs produce 312 accounts. Four feature contrasts and three
+same-seed profitability contrasts produce 252 matched comparisons. Within each
+capital/allocation/cohort/cost context, summarize all three seed differences;
+these share one market history and are not independent market trials.
+
+[Bouthillier et al.](https://proceedings.mlsys.org/paper_files/paper/2021/hash/0184b0cd3cfb185989f858a1d9f5c1eb-Abstract.html)
+motivate accounting for evaluation variance. Their classification benchmarks
+and independent-sample resampling do not justify random train/test dates in
+financial forecasting. Chronological purges and the existing balanced gates
+remain unchanged, and no outcome automatically promotes a production model.

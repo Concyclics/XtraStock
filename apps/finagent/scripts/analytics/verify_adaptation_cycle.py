@@ -83,6 +83,8 @@ def audit_predictions(directory, data, features, reference):
         if {r['period_start'] for r in records} != expected_starts or len(records) != len(expected_starts):
             raise ValueError('missing or duplicate training period')
         for record in records:
+            if record.get('tree_seed') != cfg.get('tree_seed'):
+                raise ValueError('recorded tree seed differs from the predeclared variant')
             start = int(np.searchsorted(dates, record['period_start']))
             lower = max(spec['primary_since'], (pd.Timestamp(record['period_start']) - pd.DateOffset(years=spec['training_years'])).strftime('%Y-%m-%d'))
             days = np.flatnonzero((dates >= lower) & (np.arange(len(dates)) + horizon < start) & (per_day > 0))

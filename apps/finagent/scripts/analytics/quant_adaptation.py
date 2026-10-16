@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from quant_learning import fit_ridge, predict, labels
-from quant_tree_learning import daily_rank_targets, fit_tree, TREE_PARAMS
+from quant_tree_learning import daily_rank_targets, fit_tree, tree_parameters, TREE_PARAMS
 from strategy_dataset import checksum, dump
 from strategy_research import rank
 
@@ -93,6 +93,10 @@ def walk_forward_adaptation(data, features, matrix, names, years, variants, outp
         if family not in ('ridge_extended', 'tree_blend'):
             raise ValueError('unsupported refit model family')
         half_life = config['half_life_sessions']
+        if 'tree_seed' in config:
+            tree_parameters(config['tree_seed'])
+            if family != 'tree_blend':
+                raise ValueError('tree seed requires a tree model family')
         score = np.full_like(data['close'], np.nan)
         directory = output / 'folds' / variant
         directory.mkdir(parents=True, exist_ok=True)
@@ -110,6 +114,8 @@ def walk_forward_adaptation(data, features, matrix, names, years, variants, outp
                 record = receipt['fold']
                 if any(record[key] != value for key, value in period.items()):
                     raise ValueError('fold checkpoint period differs')
+                if record.get('tree_seed') != config.get('tree_seed'):
+                    raise ValueError('fold checkpoint tree seed differs')
                 for model_file, digest in receipt['model_files'].items():
                     if checksum(directory / model_file) != digest:
                         raise ValueError('saved model differs from completed fold')
@@ -131,6 +137,8 @@ def walk_forward_adaptation(data, features, matrix, names, years, variants, outp
                           'validation_signal_first': str(dates[vi[0]]), 'validation_label_last': str(dates[vi[-1]+horizon]),
                           'inner_train_label_last': str(dates[ii[-1]+horizon]),
                           'inner_training_dates': len(ii), 'validation_dates': len(vi), 'models': {}}
+                if 'tree_seed' in config:
+                    record['tree_seed'] = config['tree_seed']
                 ridge = fit_ridge(matrix[ti, tj], target[ti, tj], ti, half_life_sessions=half_life)
                 block = _predict_block(ridge, matrix, features['eligible'], begin, end)
                 record['models']['ridge_extended'] = {k: v.tolist() if isinstance(v, np.ndarray) else v for k, v in ridge.items()}
@@ -139,8 +147,9 @@ def walk_forward_adaptation(data, features, matrix, names, years, variants, outp
                     component_blocks = [block]
                     for key, tree_target in tree_targets.items():
                         model_path = directory / f"{period['period_start']}-{key}.txt"
+                        seed_args = {'tree_seed': config['tree_seed']} if 'tree_seed' in config else {}
                         model, fitted = fit_tree(matrix, tree_target, train, inner, validation, names,
-                                                  model_path, half_life_sessions=half_life)
+                                                  model_path, half_life_sessions=half_life, **seed_args)
                         component_blocks.append(_predict_block(model, matrix, features['eligible'], begin, end, tree=True))
                         record['models'][key] = fitted
                         model_files[model_path.name] = checksum(model_path)

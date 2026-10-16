@@ -828,6 +828,53 @@
         "财务消融"
       ],
       "implementation_status": "revision_aware_financial_ablation_with_independent_feature_and_saved_model_replay_research_only"
+    },
+    {
+      "method_key": "paired_seed_financial_controls",
+      "title": "财务数值分解与训练随机性复验",
+      "source": {
+        "title": "Accounting for Variance in Machine Learning Benchmarks",
+        "authors": [
+          "Xavier Bouthillier",
+          "Pierre Delaunay",
+          "Mirko Bronzi",
+          "et al."
+        ],
+        "year": 2021,
+        "url": "https://proceedings.mlsys.org/paper_files/paper/2021/hash/0184b0cd3cfb185989f858a1d9f5c1eb-Abstract.html",
+        "scope": "一般机器学习分类基准的评估方差研究；不是金融收益证据，也不直接适用其独立同分布抽样假设。"
+      },
+      "finding": "原文研究数据抽样、训练随机性与超参数选择对评估的影响，主张比较模型时计入波动，而不是只报告一次运行或最佳结果。",
+      "adaptation": "保持近五年时间序列、年度训练和标签成熟要求；固定三个树训练种子比较原模型与盈利质量。另将盈利数值及其缺失标记，与报告可用性、月份和年龄拆分。全部配置和逐年结果保留，不随机打散金融日期或按最好种子选模。",
+      "required_data": [
+        "冻结且时点一致的行情/EPS/财务面板",
+        "原模型和盈利质量的已核验预测",
+        "保存的树参数、折次记录及现金账",
+        "固定种子与特征分组的预先声明"
+      ],
+      "tests": [
+        "默认参数、默认模型和预测保持兼容",
+        "数值变化不能进入仅时效对照，时效变化不能进入无时效数值对照",
+        "保存模型的实际种子必须与预先声明一致",
+        "只改变树种子时岭回归参数保持一致",
+        "同资金、同成本、同仓位规则和同证券范围配对",
+        "保留三个种子的全部结果和逐年差异"
+      ],
+      "limitations": [
+        "三个种子只诊断有限训练随机性，不等于三个独立市场样本。",
+        "固定年度验证和区块区间不能消除多轮历史选择偏差。",
+        "供应商修订重建、历史证券身份和实际成交能力仍有缺口。",
+        "排名或平均收益改善仍须通过原收益、胜率和回撤门槛。"
+      ],
+      "tags": [
+        "训练随机性",
+        "随机种子",
+        "财务分解",
+        "特征消融",
+        "复现",
+        "稳健性"
+      ],
+      "implementation_status": "fixed_financial_context_controls_and_paired_seed_replays_research_only"
     }
   ]
 }

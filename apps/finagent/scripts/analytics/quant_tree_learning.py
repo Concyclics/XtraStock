@@ -130,7 +130,17 @@ def day_weights(indices):
     return weights / weights.mean()
 
 
-def fit_tree(matrix, target, train, inner, validation, names, model_path=None, half_life_sessions=None):
+def tree_parameters(seed=None):
+    """Return isolated parameters; an explicit seed never mutates other fits."""
+    if seed is not None and (type(seed) is not int or not 0 <= seed <= 2**31-1):
+        raise ValueError('tree seed must be a nonnegative 32-bit integer')
+    params = dict(TREE_PARAMS)
+    if seed is not None:
+        params['seed'] = seed
+    return params
+
+
+def fit_tree(matrix, target, train, inner, validation, names, model_path=None, half_life_sessions=None, tree_seed=None):
     # Optional research dependency; importing the Agent never starts LightGBM.
     import lightgbm as lgb
     ii, ij = np.where(inner)
@@ -138,7 +148,7 @@ def fit_tree(matrix, target, train, inner, validation, names, model_path=None, h
     ti, tj = np.where(train)
     if len(ii) < 1000 or len(vi) < 1000 or not np.all(np.isfinite(target[ti, tj])):
         raise ValueError('insufficient or non-finite tree training labels')
-    params = dict(TREE_PARAMS)
+    params = tree_parameters(tree_seed)
     dataset = lgb.Dataset(matrix[ii, ij], label=target[ii, ij], weight=observation_weights(ii, half_life_sessions), feature_name=names)
     validation_data = lgb.Dataset(matrix[vi, vj], label=target[vi, vj], weight=day_weights(vi), reference=dataset)
     selected = lgb.train(params, dataset, num_boost_round=400, valid_sets=[validation_data],

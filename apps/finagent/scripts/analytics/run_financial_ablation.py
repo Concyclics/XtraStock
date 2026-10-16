@@ -23,6 +23,7 @@ def main():
     for name in ('dataset', 'forecasts', 'reference-experiment', 'financial-panel',
                  'financial-verification', 'study-config', 'output'):
         parser.add_argument('--'+name, type=Path, required=True)
+    parser.add_argument('--learner-compatibility', type=Path)
     args = parser.parse_args()
     study = json.loads(args.study_config.read_text())
     validate_study(study)
@@ -44,9 +45,13 @@ def main():
     for name, digest in ref_spec['code'].items():
         if checksum(reference/'code-at-execution'/name) != digest:
             raise ValueError('Annual baseline construction code is not intact')
-    for name in ('quant_learning.py', 'quant_tree_learning.py', 'quant_adaptation.py', 'strategy_research.py'):
-        if checksum(Path(__file__).with_name(name)) != ref_spec['code'][name]:
-            raise ValueError('The shared baseline learner or market features changed: '+name)
+    shared_changed = any(checksum(Path(__file__).with_name(name)) != ref_spec['code'][name]
+        for name in ('quant_learning.py', 'quant_tree_learning.py', 'quant_adaptation.py', 'strategy_research.py'))
+    if shared_changed:
+        if args.learner_compatibility is None:
+            raise ValueError('Changed learner code requires an explicit default-compatibility verification')
+        from verify_learner_defaults import read_compatibility
+        spec['learner_compatibility'] = read_compatibility(args.learner_compatibility, reference)
     data = load_dataset(args.dataset, 'all')
     financials, financial_receipt = load_verified_panel(args.financial_panel, args.financial_verification, args.dataset, data)
     spec.update(version='financial-ablation-predictions-v1', study_config_sha256=checksum(args.study_config),
@@ -67,7 +72,7 @@ def main():
     code = Path(__file__).parent
     spec['code'].update({name: checksum(code/name) for name in ('run_financial_ablation.py', 'quant_financial_learning.py',
         'quant_adaptation.py', 'quant_tree_learning.py', 'financial_history.py', 'horizon_signals.py', 'verify_adaptation_cycle.py',
-        'verify_financial_ablation.py')})
+        'verify_financial_ablation.py', 'verify_learner_defaults.py')})
     path = out/'PROTOCOL.json'
     if path.exists() and json.loads(path.read_text()) != spec:
         raise ValueError('Inputs, code or predeclared study changed; cannot resume')
