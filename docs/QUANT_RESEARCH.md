@@ -6,6 +6,50 @@ in `config/research/policy.json` records the return target, cost assumptions and
 risk requirements. A 20% net annualized return is a research target, not an
 observed result or an automatic promotion rule.
 
+## Daily loss attribution and minimum-exposure comparisons
+
+`nav_attribution.py` reconstructs every account day from frozen fills, raw marks
+and corporate-action entitlements. It checks the initial-plus-daily NAV alignment,
+cash at decision checkpoints, holdings, exposure and unpaid dividends. Its components
+separate holding-price movements, action-related mark adjustments, net dividends,
+trade-to-close movements, paid fees and the final liquidation-fee provision.
+Dividend payment transfers a receivable into cash; it is not recognized twice.
+Invalid daily marks retain the account's existing mark and remain a limitation.
+These are accounting contributions, not causal industry or factor effects.
+
+```bash
+python apps/finagent/scripts/analytics/run_nav_attribution.py \
+  --dataset .local/research/market \
+  --accounts .local/research/seed-ensemble \
+  --manifest .local/research/attribution-manifest.json \
+  --output .local/research/daily-attribution
+```
+
+The manifest contains frozen `market_source` hashes, `accounts` with relative
+`source` paths and hashes plus model/allocation/cohort/cost/initial_cash identity,
+and inclusive session `windows` with id/start/end/year. A drawdown window starts
+on the session **after** the peak close. Daily security contributions are retained
+in compressed account files; summary CSVs and audit receipts are independently
+registerable. Completed output directories are not overwritten.
+
+`config/research/exposure_floors.json` compares the same original/profitability
+three-seed forecasts with 35%, 45% or 55% exposure when the lagged trend rule is off,
+plus full-investment controls. This parameter is a target during the off regime,
+not a guaranteed lower bound on realized holdings. Round lots, blocked orders,
+prices and cash can make actual exposure differ. Both model families, both capital
+levels, all three security cohorts and both fee assumptions are retained. Use
+`run_portfolio_cycle.py` with this study config and the verified seed-ensemble
+prediction directory, then run `verify_quant_cycle.py` and
+`verify_portfolio_exposure.py`. No new model fitting is required.
+
+The floor sensitivity is exploratory on already inspected history. It must keep
+the five-year input window, annual comparison, equal-capital benchmark and all
+balanced gates unchanged. Higher exposure can recover upside participation and
+also enlarge losses. Risk-management research provides both supporting and
+contrasting evidence; this trend-floor experiment is not a reproduction of
+inverse-variance scaling in those papers. Numerical passes alone do not certify
+historical financial versions, opening-auction fills or production readiness.
+
 ## Knowledge and evidence
 
 `config/research/methods.json` contains source-backed method cards. Each separates

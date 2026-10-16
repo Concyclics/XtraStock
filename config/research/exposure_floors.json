@@ -1,0 +1,78 @@
+{
+  "capital_levels": [
+    1000000,
+    10000000
+  ],
+  "cohorts": [
+    "all",
+    "discovery",
+    "cross_section_reserve"
+  ],
+  "cost_bps_per_side": [
+    15,
+    30
+  ],
+  "allocations": {
+    "k100_equal": {
+      "size": 100
+    },
+    "k100_equal_trend-refresh5-band25": {
+      "size": 100,
+      "weighting": "equal",
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35
+    },
+    "k100_equal_trend-floor45-refresh5-band25": {
+      "size": 100,
+      "weighting": "equal",
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.45
+    },
+    "k100_equal_trend-floor55-refresh5-band25": {
+      "size": 100,
+      "weighting": "equal",
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.55
+    }
+  },
+  "execution_audit": true,
+  "exposure_audit": true,
+  "training_years": 3,
+  "validation_sessions": 63,
+  "label_horizon": 20,
+  "diagnostic_horizons": [
+    20
+  ],
+  "diagnostic_next_open": true,
+  "seeds": [
+    261016,
+    261017,
+    261018
+  ],
+  "version": "fixed-trend-exposure-floor-v1",
+  "models": [
+    "annual_original_seed_mean",
+    "annual_profitability_seed_mean"
+  ],
+  "model_horizons": {
+    "annual_original_seed_mean": [
+      20
+    ],
+    "annual_profitability_seed_mean": [
+      20
+    ]
+  },
+  "selection": "Compare fixed minimum exposures of 35%, 45%, 55% symmetrically for both frozen three-seed families, plus full-investment and same-capital benchmarks. No refit, leverage, gate relaxation, in-sample optimum search or automatic promotion.",
+  "primary_since": "2021-10-15",
+  "primary_until": "2026-10-15",
+  "new_floor_levels": [
+    0.45,
+    0.55
+  ]
+}
