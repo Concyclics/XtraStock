@@ -32,6 +32,11 @@ methodology and filters for model, allocation, cohort, cost, horizon, year,
 `initial_cash` (CNY) and requested `holdings`. Compare results at matched capital;
 different account sizes can have different rounding and liquidity constraints.
 Methods and offline results do not become approved forecasts merely by entering SQL.
+Experiment tool pages carry shared project methodology once in the catalog
+metadata. Each citable row retains units for its own metrics, year-specific
+notes, its gate status and a reference to matching shared methodology. Unique
+notes remain on the row. This keeps the normal five-result page and its evidence
+inside the tool budget as study contracts grow.
 
 Use `research_asset_registry.py --project PROJECT_NAME` to register one completed
 project. Put `EXPERIMENT_CONTRACT.json` at the project root, with artifact paths

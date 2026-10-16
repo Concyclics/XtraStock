@@ -43,8 +43,8 @@ def load_intelligence(conn, cutoff, as_of=None, stock_codes=None, limit=10, scop
     experiments=None
     if scope=='experiments' and conn is not None:
         from scripts.analytics.research_asset_registry import load_registry_summary,load_experiment_results
-        # Each citable row carries units and yearly method notes. Small pages
-        # prevent tool-budget compaction from skipping evidence between offsets.
+        # Units and year-specific notes remain on each citable row. Shared
+        # project methodology is projected once from the matching catalog below.
         limit=min(limit,5)
         result_rows=load_experiment_results(conn,cutoff,experiment_project,limit,experiment_filters,experiment_offset)
         experiments={'catalog':load_registry_summary(conn,cutoff,limit,experiment_project),'rows':result_rows,
@@ -97,7 +97,24 @@ def compact_monitor(monitor):
 
 def intelligence_rows(state):
     """Keep compact source-bound records instead of returning uncitable prose."""
-    rows=list((state.get('experiments') or {}).get('rows',[]))
+    experiments=state.get('experiments') or {}
+    contracts={project['project_key']:project.get('result_contract') or {}
+        for project in (experiments.get('catalog') or {}).get('projects',[])}
+    rows=[]
+    for source in experiments.get('rows',[]):
+        row=dict(source)
+        # Do not repeat unrelated metric units or the same long project notes
+        # in both every row and every evidence value. The normal five-row page
+        # otherwise loses results when the tool enforces its output budget.
+        if isinstance(row.get('metrics'),dict) and isinstance(row.get('metric_units'),dict):
+            row['metric_units']={key:value for key,value in row['metric_units'].items() if key in row['metrics']}
+        shared=contracts.get(row.get('project'))
+        if (shared is not None and 'methodology_notes' in shared and 'methodology_notes' in row
+                and shared['methodology_notes']==row['methodology_notes']):
+            row.pop('methodology_notes')
+            row['methodology_ref']={'project':row['project'],
+                'location':'meta.experiment_catalog.projects[].result_contract.methodology_notes'}
+        rows.append(row)
     rows.extend((state.get('methods') or {}).get('rows',[]))
     pool=state.get('candidate_pool') or {}
     if pool.get('status')=='available':

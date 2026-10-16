@@ -1,4 +1,7 @@
 import datetime as dt
+import contextlib
+import copy
+import io
 import json
 import os
 import sys
@@ -15,6 +18,52 @@ from scripts.analytics.research_intelligence import intelligence_rows, load_inte
 
 
 class IntelligenceContractTests(unittest.TestCase):
+    def test_experiment_page_keeps_all_rows_and_citations_with_shared_notes(self):
+        from unittest.mock import MagicMock
+        from mmclaw import finance_db_helper as helper
+        from mmclaw.tools import FinanceDBTool
+        cutoff=dt.datetime(2026,10,16,0,tzinfo=dt.timezone.utc)
+        notes=[f'Rule {i}: '+('Preserve historical maturity, cohort, costs and partial-year boundaries. '*2) for i in range(20)]
+        units={'net_return':'fraction','initial_cash':'CNY',**{f'other_{i}':'fraction' for i in range(30)}}
+        rows=[{'component':'offline_experiment_result','project':'study','available_at':cutoff,
+            'metrics':{'model':'candidate','year':str(2022+i),'net_return':i/100,'initial_cash':1000000},
+            'metric_units':units,'methodology_notes':notes,'year_note':'Partial year' if i==4 else 'Full year',
+            'training_status':'purged','prediction_eligible':False,'gate_status':'research_only'} for i in range(5)]
+        state={'scope':'experiments','usage':'research','decision_cutoff':cutoff,
+            'experiments':{'rows':rows,'catalog':{'projects':[{'project_key':'study',
+                'result_contract':{'methodology_notes':notes,'metric_units':units}}]},
+                'offset':0,'page_size':5,'next_offset':5}}
+        original=copy.deepcopy(state)
+        stream=io.StringIO()
+        with patch('scripts.analytics.research_intelligence.load_intelligence',return_value=state),patch.object(
+            helper,'connect',return_value=MagicMock()),patch.object(helper,'v3_request_context',return_value=('page',cutoff)),contextlib.redirect_stdout(stream):
+            helper.run_v3_research_intelligence(str(ROOT),{})
+        raw=stream.getvalue()
+        bounded=FinanceDBTool._bound_child_output(raw) if len(raw)>FinanceDBTool.MAX_OUTPUT_CHARS else raw
+        payload=json.loads(bounded)
+        self.assertEqual(len(payload['rows']),5);self.assertEqual(len(payload['evidence']),5)
+        self.assertFalse(payload['meta'].get('output_compacted',False))
+        self.assertEqual(payload['meta']['experiment_next_offset'],5)
+        self.assertEqual(payload['meta']['experiment_catalog']['projects'][0]['result_contract']['methodology_notes'],notes)
+        for row,evidence in zip(payload['rows'],payload['evidence']):
+            self.assertEqual(row,evidence['value'])
+            self.assertEqual(row['metric_units'],{'net_return':'fraction','initial_cash':'CNY'})
+            self.assertEqual(row['methodology_ref']['project'],'study')
+            self.assertFalse(row['prediction_eligible'])
+            self.assertIn('year_note',row)
+        self.assertEqual(state,original)
+        store=EvidenceStore('page','compare research')
+        self.assertEqual(store.add_tool_result('finance_research_intelligence',bounded),5)
+        self.assertFalse(store.tool_errors)
+
+    def test_experiment_unique_or_missing_shared_methodology_stays_on_row(self):
+        row={'project':'one','metrics':{'net_return':.1},'metric_units':{'net_return':'fraction'},
+             'methodology_notes':['Unique source limitation']}
+        for catalog in ({},{'projects':[{'project_key':'two','result_contract':{'methodology_notes':row['methodology_notes']}}]},
+                        {'projects':[{'project_key':'one','result_contract':{'methodology_notes':['Different notes']}}]}):
+            result=intelligence_rows({'experiments':{'rows':[row],'catalog':catalog}})
+            self.assertEqual(result,[row])
+
     def test_pool_summary_survives_budget_and_compares_real_instants(self):
         state={'candidate_pool':{'status':'available','as_of_date':'2026-10-13',
             'decision_cutoff':'2026-10-14T19:00:00+08:00','rows':[{'stock_code':'600036',
