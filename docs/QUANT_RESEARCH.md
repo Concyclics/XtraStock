@@ -527,3 +527,55 @@ not reproduce its complete quality factor, five-year growth definition or
 long/short portfolio. A subsequent feature ablation must establish whether the
 new information improves costed account results. Vendor revision dates still
 do not certify an archived historical system record.
+
+
+## Controlled financial feature ablation
+
+`config/research/financial_ablation.json` freezes four input groups: the original
+72-feature market/EPS model, added profitability, added reported growth, and
+both additions. The baseline prediction array is copied unchanged from the
+verified annual model. New groups retain the same annual training splits,
+20-session labels, purged validation, model parameters and three-component
+ridge/return-tree/rank-tree blend. Only discovery securities supply labels.
+
+Each new financial field has a contemporaneous cross-sectional rank and an
+availability mask. Missing observations remain missing before the existing
+learner handles them; they do not remove a stock from market eligibility.
+Reported months divided by 12 and report age divided by 550 add context with
+their own masks. They neither annualize cumulative ROE nor mix financial
+periods. The groups contain 82, 80 and 86 columns respectively.
+
+```sh
+.venv/bin/python apps/finagent/scripts/analytics/run_financial_ablation.py \
+  --dataset "$FROZEN_MARKET_PANEL" --forecasts "$FROZEN_EPS_FEATURES" \
+  --reference-experiment "$VERIFIED_HORIZON_PREDICTIONS" \
+  --financial-panel "$FINANCIAL_PANEL_OUTPUT" \
+  --financial-verification "$FINANCIAL_VERIFICATION_REPORT" \
+  --study-config config/research/financial_ablation.json \
+  --output "$FINANCIAL_PREDICTIONS"
+.venv/bin/python apps/finagent/scripts/analytics/verify_financial_ablation.py \
+  --experiment "$FINANCIAL_PREDICTIONS" \
+  --dataset "$FROZEN_MARKET_PANEL" --forecasts "$FROZEN_EPS_FEATURES" \
+  --reference-experiment "$VERIFIED_HORIZON_PREDICTIONS" \
+  --financial-panel "$FINANCIAL_PANEL_OUTPUT" \
+  --financial-verification "$FINANCIAL_VERIFICATION_REPORT" \
+  --report "$FINANCIAL_PREDICTION_VERIFICATION"
+```
+
+The verifier checks every training boundary and prediction checkpoint, rebuilds
+financial columns using independent SciPy ranks, and reloads all saved trees
+and ridge parameters to regenerate predictions. The original market/EPS
+columns and baseline score arrays must remain unchanged. Financial source,
+market, forecast, code and study fingerprints are retained with each run.
+
+Replay these frozen predictions with `run_portfolio_cycle.py` using the same
+study configuration, separately for each declared capital. Four models and
+three existing portfolio rules plus two benchmarks produce 168 accounts across
+two capital levels, three cohorts and two fees. Compare additions against the
+original model at the same allocation/capital/cohort/cost. Preserve annual
+results, including an explicitly partial current year, and all losing cases.
+
+These are historically reconstructed financial inputs. Better ranking metrics
+do not establish better costed account returns; neither establishes an
+untouched prospective result. Repeatedly inspected years remain exploratory,
+and the balanced return/drawdown/win-rate gates do not change.
