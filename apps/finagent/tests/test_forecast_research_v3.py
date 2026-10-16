@@ -38,6 +38,18 @@ class ForecastResearchTest(unittest.TestCase):
         d=self.dataset();f,a=forecast_features(d,[self.row('2020-12-28',1,2021),self.row('2020-12-30',2,2022),self.row('2020-12-31',3,2021,'B')])
         self.assertTrue(np.isnan(f['revision']).all())
 
+    def test_current_year_mode_cannot_borrow_next_year_eps_or_revision(self):
+        d=self.dataset();rows=[self.row('2020-12-28',1,2021),self.row('2020-12-30',1.5,2021),
+            self.row('2021-01-04',2,2022),self.row('2021-01-05',3,2022)]
+        f,_=forecast_features(d,rows,current_year_only=True)
+        self.assertTrue(np.isnan(f['value'][:4]).all())
+        self.assertAlmostEqual(f['value'][6,0],.15)
+        self.assertAlmostEqual(f['revision'][6,0],.5)
+
+    def test_negative_broker_is_exposed_for_valuation_quality(self):
+        d=self.dataset();f,_=forecast_features(d,[self.row('2020-12-28',-1,2021)],current_year_only=True)
+        self.assertEqual(f['nonpositive_brokers'][4,0],1)
+
     def test_split_crossing_excluded(self):
         d=self.dataset();d['split_factor'][2:,0]=2
         f,a=forecast_features(d,[self.row('2020-12-28',1),self.row('2020-12-30',.6)])

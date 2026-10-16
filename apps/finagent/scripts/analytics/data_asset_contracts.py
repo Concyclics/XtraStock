@@ -4,6 +4,9 @@ SQL and derived indexes are different grains; this catalog never certifies cover
 """
 
 DATASETS=[
+ ('research.earnings_observations','盈利预测逐项观测','sql','research.earnings_observations','immutable source + fiscal year + metric + observation','EPS元/股与净利润元分列；当前API只从采集时可见；正文历史重建不等于系统当时已知。',['research.reports_resolved']),
+ ('quant.daily_value_plans','每日交易计划与变更账本','sql','quant.daily_plan_runs;quant.daily_plan_revisions;quant.daily_plan_events','run + stock + append-only event','日报完成后冻结；候选不等于持仓；估值情景不等于概率预测；影子计划不能触发买卖提醒。',['analytics.candidate_pool','research.earnings_observations']),
+ ('quant.daily_value_paper','限价模拟账户与成交','sql','quant.daily_plan_accounts;quant.daily_plan_sessions','account + verified trading session','模拟账本；按真实可见时间、限价、费用和T+1重放；缺少持仓估值或公司行动时不编造净值。',['quant.daily_value_plans','market.canonical_bars_daily_v2']),
  ('research.quant_methods','量化方法与原始研究来源','sql','research.quant_method_versions','method_key + content version','原始论文结论、项目改编、数据前提和验收对照分别保存；外部研究不等于本项目已验证收益。',[]),
  ('research.reports_resolved','规范化证券身份的研报','sql','research.reports_resolved','document_id','分析按当前规范证券身份连接，原报告代码与身份实际可见时点保留；采集仍写原始research.reports。',['corpus.documents','market.lifecycle']),
  ('company.filings','官方公告元数据与正文入口','sql','company.filings','filing_id','公告目录记录不代表PDF、正文或OCR均完整；关联统一文档及附件。',['corpus.documents']),

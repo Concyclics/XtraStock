@@ -1,0 +1,33 @@
+{
+  "version": "daily-value-plan-v1",
+  "mode": "shadow",
+  "timezone": "Asia/Shanghai",
+  "primary_years": 5,
+  "forecast_max_age_days": 180,
+  "min_institutions": 3,
+  "min_industry_peers": 8,
+  "valuation_pe_cap": 40,
+  "entry_discount": 0.20,
+  "no_chase_discount": 0.01,
+  "entry_valid_sessions": 3,
+  "holding_sessions": [20, 60],
+  "max_candidates": 20,
+  "max_sector_candidates": 4,
+  "initial_paper_cash": 1000000,
+  "cost_bps_per_side": [15, 30],
+  "slippage_bps": 5,
+  "max_participation": 0.01,
+  "publish_enabled": false,
+  "enabled_from": null,
+  "approval_file": null,
+  "gates": {
+    "cagr_min": 0.20,
+    "max_drawdown_max": 0.25,
+    "win_rate_min": 0.55,
+    "positive_complete_years_min": 3,
+    "baseline_cagr_advantage_min": 0,
+    "baseline_win_advantage_min": 0,
+    "forward_shadow_sessions_min": 20,
+    "strict_execution_data_required": true
+  }
+}

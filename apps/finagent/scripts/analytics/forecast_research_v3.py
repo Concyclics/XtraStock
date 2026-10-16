@@ -26,7 +26,7 @@ def public_date(report_date, published_at=None, source_identifier=None):
     return str(max(days)+dt.timedelta(days=1))
 
 
-def forecast_features(d, source_rows, aliases=None):
+def forecast_features(d, source_rows, aliases=None, *, current_year_only=False):
     aliases=aliases or {}
     dates=d['dates'];symbols={str(s):j for j,s in enumerate(d['symbols'])}
     day_ord=np.asarray([dt.date.fromisoformat(str(x)).toordinal() for x in dates])
@@ -63,6 +63,7 @@ def forecast_features(d, source_rows, aliases=None):
     shape=d['close'].shape
     value=np.full(shape,np.nan);revision=np.full(shape,np.nan)
     brokers=np.zeros(shape,np.int16);revision_brokers=np.zeros(shape,np.int16)
+    nonpositive=np.zeros(shape,np.int16) if current_year_only else None
     state={};changes={};pos=0
     for t,now in enumerate(day_ord):
         year=years[t]
@@ -85,7 +86,8 @@ def forecast_features(d, source_rows, aliases=None):
         for key in expired:state.pop(key,None);changes.pop(key,None)
         by_broker={}
         for (j,broker,fy),row in state.items():
-            if fy not in (year,year+1) or row[4]<=0:
+            if current_year_only and fy==year and row[4]<=0:nonpositive[t,j]+=1
+            if fy not in (year,year+1) or row[4]<=0 or (current_year_only and fy!=year):
                 continue
             split_now=d['split_factor'][t,j];split_ref=d['split_factor'][row[5],j]
             price=d['close'][t,j]
@@ -98,6 +100,7 @@ def forecast_features(d, source_rows, aliases=None):
                 item['revision'].append(ch[1])
         vals=collections.defaultdict(list);revs=collections.defaultdict(list)
         for (j,broker),items in by_broker.items():
+            if current_year_only and year not in items['value']:continue
             selected=year if year in items['value'] else year+1
             vals[j].append(items['value'][selected])
             if selected!=year:audit['next_year_value_broker_days']+=1
@@ -105,7 +108,9 @@ def forecast_features(d, source_rows, aliases=None):
         for j,items in vals.items():value[t,j]=float(np.median(items));brokers[t,j]=len(items)
         for j,items in revs.items():revision[t,j]=float(np.median(items));revision_brokers[t,j]=len(items)
     audit['feature_stock_days']=int((np.isfinite(value)&np.isfinite(revision)).sum())
-    return {'value':value,'revision':revision,'value_brokers':brokers,'revision_brokers':revision_brokers},dict(audit)
+    result={'value':value,'revision':revision,'value_brokers':brokers,'revision_brokers':revision_brokers}
+    if current_year_only:result['nonpositive_brokers']=nonpositive
+    return result,dict(audit)
 
 
 def select_fraction(scores, minimum_eligible=20):

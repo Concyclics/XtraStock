@@ -69,10 +69,12 @@ def step(state,session,bars,orders=(),policy=None,actions=()):
         if date(r['pay_date'])<=today:cash+=dec(r['amount'])
         else:remain.append(r)
     receivables=remain
+    allowed_quality={'verified','reconstruction'} if policy.get('allow_reconstruction') else {'verified'}
     for code in {l['code'] for l in lots}:
         bar=bars.get(code)
         if not bar or bar.get('close') is None or dec(bar['close'])<=0:raise DataGap('held security lacks valuation: '+code)
-        if bar.get('quality')!='verified':raise DataGap('held security valuation not verified: '+code)
+        if bar.get('quality') not in allowed_quality:raise DataGap('held security valuation not verified: '+code)
+    opening_cash=cash
     fills=[];results=[];seen=set();used_capacity={}
     ordered=sorted(orders,key=lambda o:(0 if o['side']=='sell' else 1,str(o['id'])))
     for o in ordered:
@@ -83,11 +85,11 @@ def step(state,session,bars,orders=(),policy=None,actions=()):
         decision=dt.datetime.fromisoformat(str(o['decision_at']).replace('Z','+00:00'))
         if decision.tzinfo is None:raise DataGap('decision timezone missing')
         from zoneinfo import ZoneInfo
-        if date(o['session'])!=today or decision.astimezone(ZoneInfo('Asia/Shanghai')).date()>=today:
+        if date(o['session'])!=today or ('limit_price' not in o and decision.astimezone(ZoneInfo('Asia/Shanghai')).date()>=today):
             raise DataGap('order must follow its frozen decision date')
         result={**o,'filled_qty':0,'status':'expired','reason':None}
         b=bars.get(code)
-        if not b or b.get('quality')!='verified' or b.get('amount') is None:
+        if not b or b.get('quality') not in allowed_quality or b.get('amount') is None:
             result['reason']='missing_verified_execution_data';results.append(result);continue
         if b.get('suspended') or dec(b.get('amount',0))<=0:
             result['reason']='suspended_or_no_turnover';results.append(result);continue
@@ -98,15 +100,25 @@ def step(state,session,bars,orders=(),policy=None,actions=()):
         if not (0<lo<=op<=hi and lo<=close<=hi):raise DataGap('invalid OHLC')
         up,down=dec(b['limit_up']),dec(b['limit_down']);lot=int(b['lot_size'])
         if lot<=0 or down<=0 or up<=down:raise DataGap('invalid execution rule')
-        if (side=='buy' and op>=up) or (side=='sell' and op<=down):
+        if 'limit_price' not in o and ((side=='buy' and op>=up) or (side=='sell' and op<=down)):
             result['reason']='opening_price_limit_no_assumed_fill';results.append(result);continue
         slip=dec(policy['slippage_bps'])/10000
         px=money(min(hi,up,op*(1+slip)) if side=='buy' else max(lo,down,op*(1-slip)))
+        if 'limit_price' in o:
+            try:
+                from .limit_execution import match_limit
+            except ImportError:
+                from limit_execution import match_limit
+            px,match_reason=match_limit(o,b,today,policy['slippage_bps'])
+            if px is None:
+                result['reason']=match_reason;results.append(result);continue
+            result['match_assumption']=match_reason
         remaining_capacity=max(Decimal(0),dec(b['amount'])*dec(policy['max_participation'])-used_capacity.get(code,Decimal(0)))
         cap=int(remaining_capacity/px)
         rate=dec(policy['buy_fee_bps'] if side=='buy' else policy['sell_fee_bps'])/10000
         if side=='buy':
-            available=int(cash/(px*(1+rate)))
+            budget=min(cash,opening_cash) if policy.get('no_intraday_sale_funding') else cash
+            available=int(budget/(px*(1+rate)))
             n=min(qty,cap,available)//lot*lot
         else:
             available=sum(int(l['qty']) for l in lots if l['code']==code and date(l['bought_on'])<today)
@@ -118,12 +130,17 @@ def step(state,session,bars,orders=(),policy=None,actions=()):
         gross=money(px*n);fee=money(gross*rate)
         used_capacity[code]=used_capacity.get(code,Decimal(0))+gross
         if side=='buy':
-            cash-=gross+fee;lots.append({'code':code,'qty':n,'bought_on':str(today)})
+            cash-=gross+fee;opening_cash-=gross+fee
+            new_lot={'code':code,'qty':n,'bought_on':str(today)}
+            if policy.get('track_cost_basis'):new_lot['cost_cash']=str(gross+fee)
+            lots.append(new_lot)
         else:
             remaining=n
             for l in lots:
                 if l['code']==code and date(l['bought_on'])<today:
-                    take=min(remaining,int(l['qty']));l['qty']-=take;remaining-=take
+                    take=min(remaining,int(l['qty']))
+                    if 'cost_cash' in l:l['cost_cash']=str(dec(l['cost_cash'])*(int(l['qty'])-take)/int(l['qty']))
+                    l['qty']-=take;remaining-=take
                     if not remaining:break
             cash+=gross-fee;lots=[l for l in lots if l['qty']>0]
         result.update(filled_qty=n,status='filled' if n==qty else 'partial_expired',reason=None if n==qty else 'capacity_or_cash_limited')

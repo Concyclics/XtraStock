@@ -2718,6 +2718,17 @@ class QQBotConnector(object):
                 print(f"[!] QQ daily report scheduler error: {e}")
             time.sleep(60)
 
+    def _maybe_push_value_plan(self,group_openid,today,delivered):
+        try:
+            from .value_plan_delivery import deliver_after_report
+            from .outbox import _connect
+            result=deliver_after_report(group_openid,today,delivered['last_sent_path'],delivered['sent_at'],
+                self.send_messages_to_group,_connect,self._log_event)
+            if result['status'] not in ('disabled','waiting_for_plan','validation_pending','before_enabled_date') and result.get('parts')!=0:
+                self._log_event('daily_value_plan_delivery',result)
+        except Exception as exc:
+            self._log_event('daily_value_plan_error',{'error_type':type(exc).__name__})
+
     def _maybe_push_daily_report(self):
         if not self._daily_report_due():
             return
@@ -2728,6 +2739,12 @@ class QQBotConnector(object):
             self._log_event("daily_report_skipped", {"reason": "missing_group_openid", "date": today})
             return
         sent_groups = state.setdefault("sent_groups", {})
+        # A plan can finish after the report. Check this hook on later polls,
+        # including when today's report itself has already been sent.
+        for group_openid in group_openids:
+            delivered=sent_groups.get(group_openid,{})
+            if delivered.get('last_sent_date')==today:
+                self._maybe_push_value_plan(group_openid,today,delivered)
         # The scheduler polls every minute. Check delivery state before reading
         # the report or calling the model to summarize an already delivered day.
         if all(
@@ -2782,6 +2799,7 @@ class QQBotConnector(object):
                 )
                 self._save_daily_report_state(state)
                 self._log_event("daily_report_pushed", {"date": today, "path": path, "group_openid": group_openid, "message_count": len(messages), "brief_sent": bool(brief)})
+                self._maybe_push_value_plan(group_openid,today,sent_groups[group_openid])
             else:
                 sent_groups[group_openid] = {
                     "last_failed_date": today,

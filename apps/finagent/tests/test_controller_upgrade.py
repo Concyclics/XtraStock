@@ -6,6 +6,16 @@ sys.path.insert(0,str(Path(__file__).resolve().parents[1]/'scripts/pipeline'))
 import finance_pipeline_controller as controller
 
 class ControllerUpgradeTests(unittest.TestCase):
+    def test_new_plan_commands_construct_and_live_api_is_not_backdated(self):
+        day=dt.date(2026,10,16);stages={s.name:s for s in controller.ACTIVE_STAGES}
+        for name in ('daily_value_plan','daily_value_plan_settlement','earnings_observations'):
+            command=stages[name].commands(day)[0]
+            self.assertEqual(command[0],sys.executable)
+            self.assertIn('--apply',command) if name!='daily_value_plan_settlement' else self.assertIn('--date',command)
+        now=dt.datetime(2026,10,16,20,0,tzinfo=controller.TZ)
+        self.assertTrue(controller.stage_due(stages['earnings_observations'],day,now))
+        self.assertFalse(controller.stage_due(stages['earnings_observations'],day-dt.timedelta(days=1),now))
+
     def test_after_midnight_continues_prior_evening_not_prior_daily_publication(self):
         date=dt.date(2026,10,12);now=dt.datetime(2026,10,13,0,15,tzinfo=controller.TZ)
         stages={s.name:s for s in controller.ACTIVE_STAGES}

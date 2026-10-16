@@ -40,6 +40,10 @@ def load_intelligence(conn, cutoff, as_of=None, stock_codes=None, limit=10, scop
     if scope in {'all','focus','pool'} and conn is not None:
         from scripts.analytics.candidate_pool import load_pool
         pool=isolated('candidate_pool',load_pool)
+    plans=None
+    if scope in {'all','focus','pool'} and conn is not None:
+        from scripts.analytics.value_plan_reader import load_plans
+        plans=isolated('daily_value_plan',load_plans)
     experiments=None
     if scope=='experiments' and conn is not None:
         from scripts.analytics.research_asset_registry import load_registry_summary,load_experiment_results
@@ -59,7 +63,7 @@ def load_intelligence(conn, cutoff, as_of=None, stock_codes=None, limit=10, scop
         'methods':methods,
         'experiments':experiments,
         'as_of_date': as_of, 'decision_cutoff': cutoff, 'scope': scope,
-        'focus': focus, 'learning': learning,'candidate_pool':pool,
+        'focus': focus, 'learning': learning,'candidate_pool':pool,'daily_value_plan':plans,
         'component_errors':component_errors,
         'usage': '研究关注解释证据变化；学习结果说明已观察表现，研究预测不自动成为买卖建议。',
     }
@@ -134,6 +138,7 @@ def intelligence_rows(state):
     for row in pool.get('rows',[]):
         rows.append({'component':'candidate_pool',**row,'as_of_date':row.get('as_of_date') or pool.get('as_of_date'),
             'available_at':row.get('available_at') or pool.get('decision_cutoff')})
+    rows.extend((state.get('daily_value_plan') or {}).get('rows',[]))
     focus=state.get('focus') or {}
     for row in focus.get('rows',[]):
         rows.append({'component':'research_focus', **{k:v for k,v in row.items() if k!='references'},

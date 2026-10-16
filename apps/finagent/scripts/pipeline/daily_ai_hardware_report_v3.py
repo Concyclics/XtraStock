@@ -87,9 +87,10 @@ NUMERIC_RE = re.compile(r"(?<![A-Za-z0-9_-])-?\d+(?:\.\d+)?%?")
 STOCK_RE = re.compile(r"(?<!\d)[0368]\d{5}(?!\d)")
 ISO_DATE_RE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
 DOT_DATE_RE = re.compile(r"(?<!\d)(\d{4})\.(\d{1,2})\.(\d{1,2})(?!\d)")
-CN_DATE_RE = re.compile(r"(?<!\d)(\d{4})年(\d{1,2})月(\d{1,2})日")
-CN_YEAR_MONTH_RE = re.compile(r"(?<!\d)(\d{4})年(\d{1,2})月")
-CN_MONTH_DAY_RE = re.compile(r"(?<!\d)(\d{1,2})月(\d{1,2})日")
+CN_DATE_RE = re.compile(r"(?<!\d)(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
+CN_YEAR_MONTH_RE = re.compile(r"(?<!\d)(\d{4})\s*年\s*(\d{1,2})\s*月")
+CN_MONTH_DAY_RE = re.compile(r"(?<!\d)(\d{1,2})\s*月\s*(\d{1,2})\s*日")
+HALF_YEAR_RANGE_RE = re.compile(r"(?<!\d)(\d{4})\s*年\s*(1\s*[-–至]\s*6|7\s*[-–至]\s*12)\s*月")
 PERIOD_RE = re.compile(r"(?<!\d)(\d{4})\s*(?:年\s*)?(?:([上下])半年|[Hh]([12])|第?([一二三四1234])季度|[Qq]([1-4]))")
 DECLINE_PERCENT_RE = re.compile(r"((?:下降|下滑|下跌|减少|降低)\s*)(\d+(?:\.\d+)?%)")
 ISO_DATETIME_RE = re.compile(
@@ -179,7 +180,7 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
     for index,row in enumerate(intelligence_rows(intelligence),1):
         is_pool=row.get('component','').startswith('candidate_pool')
         evidence.append(evidence_item('CAND' if is_pool else 'FOCUS',index,'interpretation',{
-            'entity_id':row.get('stock_code') or row.get('label'),'metric_id':'candidate_pool' if row.get('component','').startswith('candidate_pool') else 'research_focus','value':row,
+            'entity_id':row.get('stock_code') or row.get('label'),'metric_id':('daily_value_plan' if row.get('component')=='candidate_pool_trade_plan' else 'candidate_pool' if row.get('component','').startswith('candidate_pool') else 'research_focus'),'value':row,
             'unit':'evidence_tracking_not_recommendation','as_of_date':row.get('as_of_date') or (intelligence.get('focus') or {}).get('as_of_date'),
             'available_at':row.get('available_at') or (intelligence.get('focus') or {}).get('decision_cutoff'),
             'source_id':'research_focus','quality_status':'unverified'}))
@@ -405,6 +406,7 @@ def build_prompt(snapshot_path: Path, claims_path: Path) -> str:
         - 门禁未通过时仍完成来源摘要、重要变化、相互支持或矛盾的证据、条件化解释和下一步跟踪问题；不要把整份日报写成系统故障说明。只在“数据质量与限制”简述与本期结论有关的缺口。
         - analysis_capabilities.stock_recommendations=false 时不生成“今日投资建议”章节或买卖操作指令，metadata.recommendation 必须为 false。研究关注不等同推荐买入。
         - candidate_pool 证据用于“长期候选池更新”：说明池规模和变化；有成员证据时至少选两家公司，分别解释新增、保留或淘汰原因、长期财务论点、短期趋势分和月度复核日期。没有成员变化也要解释保留依据，不能只报池规模。5/20日预测仅引用已提供的数值和到期日；排序分不是收益率。研究池可有跨行业公司，与 AI 硬件观察池分开展示。
+        - candidate_pool_trade_plan 是独立的交易计划账本。核对 plan_date、mode 与 available_at：模拟观察只解释估值、盈利预测和变更依据；同业估值情景不能写成预期涨幅、买入指令或必达日期。买入上限只引用已通过验收且尚未过期的 entry_limit；未知持仓成本时不计算回本价。候选移除不代表已有持仓已卖出。当天账本在日报完成后生成，日报可引用最近已冻结记录并标明日期。
         - research_focus 证据用于“研究关注更新”和“明日跟踪点”：解释新增/修订资料、可检验的问题以及何时复核。
         - AI硬件“个股观察池”使用 shared_research.watchlist / frozen_research_watchlist 证据；“长期候选池更新”使用 candidate_pool 成员证据。分别解释记录中的入选、保留及剔除原因，不另造成员。
         - 仅 prediction_eligible=true 的情景可给出数值预测；缺失或未通过验证时省略数值预测栏目，不插入重复的“暂不提供”占位。确实影响本期结论的模型误差或输入缺口在数据说明中说一次。券商目标价单列来源和期限。
@@ -578,6 +580,7 @@ def scalar_tokens(value: Any) -> set[str]:
         numeric_text = ISO_DATETIME_RE.sub("", text)
         numeric_text = ISO_DATE_RE.sub("", numeric_text)
         numeric_text = DOT_DATE_RE.sub("", numeric_text)
+        numeric_text = HALF_YEAR_RANGE_RE.sub("", numeric_text)
         numeric_text = CN_DATE_RE.sub("", numeric_text)
         numeric_text = CN_YEAR_MONTH_RE.sub("", numeric_text)
         numeric_text = CN_MONTH_DAY_RE.sub("", numeric_text)
@@ -591,9 +594,8 @@ def date_tokens(value: Any) -> set[str]:
     if isinstance(value, dict):
         for item in value.values():
             dates.update(date_tokens(item))
-        years = {item[:4] for item in dates if re.fullmatch(r"\d{4}-\d{2}-\d{2}", item)}
-        month_days = {item for item in dates if re.fullmatch(r"\d{2}-\d{2}", item)}
-        dates.update(f"{year}-{month_day}" for year in years for month_day in month_days)
+        # Different dates in one document do not authorize every combination
+        # of their years and month/day components.
         period_end=str(value.get('period_end') or '')
         if re.fullmatch(r'\d{4}-06-30',period_end):dates.add(period_end[:4]+'-H1')
     elif isinstance(value, list):
@@ -611,6 +613,8 @@ def date_tokens(value: Any) -> set[str]:
             dates.add(f"{int(year):04d}-{int(month):02d}")
         for month, day in CN_MONTH_DAY_RE.findall(text):
             dates.add(f"{int(month):02d}-{int(day):02d}")
+        for year,months in HALF_YEAR_RANGE_RE.findall(text):
+            dates.add(year+'-H'+('1' if months.startswith('1') else '2'))
         for year,half,half_num,quarter,quarter_num in PERIOD_RE.findall(text):
             if half or half_num:dates.add(year+'-H'+(half_num or ('1' if half=='上' else '2')))
             else:
@@ -693,6 +697,7 @@ def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> t
         numeric_text = ISO_DATETIME_RE.sub("", clean_text)
         numeric_text = ISO_DATE_RE.sub("", numeric_text)
         numeric_text = DOT_DATE_RE.sub("", numeric_text)
+        numeric_text = HALF_YEAR_RANGE_RE.sub("", numeric_text)
         numeric_text = CN_DATE_RE.sub("", numeric_text)
         numeric_text = CN_YEAR_MONTH_RE.sub("", numeric_text)
         numeric_text = CN_MONTH_DAY_RE.sub("", numeric_text)
