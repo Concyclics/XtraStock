@@ -9,7 +9,10 @@
 - `ops.data_asset_registry`：数据集位置、粒度、依赖、使用约束；不要把不同粒度的表或索引数量直接相加。
 - `corpus.documents` / `corpus.document_files`：正文及附件。空正文、原件损坏、待 OCR 与质量过滤分别记录。
 - `market.canonical_bars_daily_v2`：标准行情；结合交易日历、证券生命周期、公司行动及复权版本。
-- `company.financial_facts` / `company.financial_statement_metrics`：有来源和口径的财务事实及派生指标。
+- `company.financial_facts`：区分实际与预测、单位、来源和口径的财务事实；其覆盖须单独测量。
+- `company.financial_metrics`：供应商历史指标，首次公告日期与供应商修订日期不能混用。该表不是 `company.financial_statement_metrics` 的别名。
+- `company.financial_statement_metrics`：研报正文抽取的财务指标，不能假定完整覆盖官方历史财报。
+- `market.events_raw` 的 `financials_raw` 类别：保留供应商财报原始字段及版本。目录键为 `market.financial_events`，研究面板从这些原始版本核对时点与口径。
 - `research.report_forecasts_usable`：通过语义检查的研报预测，区分实际/预测、EPS 元/股、净利润元、预测年份。
 - `kg.relation_versions`：同时保留事实有效时间、知识可见时间、证据与审核状态。图谱特征存在不证明完整刷新成功。
 - `factor.valid_daily_scores_v1`：消费者优先使用的有效因子视图；退休版本不应进入最新得分缓存。
@@ -32,6 +35,10 @@ Agent 的 `finance_research_intelligence` 支持 `scope=experiments`，并可按
 项目的 `EXPERIMENT_CONTRACT.json` 也进入 SQL；已提供契约的项目只返回其中指定且内容哈希匹配的结果。单位和逐年训练状态由该契约提供，不能从项目名字猜测。扩大样本的 `eps-expanded-history-20261015` 已单独登记，2021 固定规则诊断与 2022–2025 实际训练必须区分。Agent 结果每页最多 5 行，通过 `experiment_next_offset` 续页，固定原决策截止时间和筛选条件；默认第一页不等于全实验。
 
 日报数据包也包含实验登记摘要。登记不会创建模型生产批准，或绕过预测质量验收。
+
+财务研究通过 `financial_history.py` 分别构建公开日期重建与实际系统观察视图。首次公告、最新更新和源记录日期取较晚者，保守延后一日；系统视图还要求实际入库时间已到。每个北京时间收盘只选最新可见报告期及版本，同一时点的冲突和最新报告缺项保持缺失。毛利率、累计ROE、同比百分数转为小数，报告月份和距期末时间一并保留。供应商更新日期不能代替完整历史版本存档。
+
+业绩报表采集器读取实际返回的 `XSMLL` 毛利率，并保留 `BPS` 每股净资产及 `MGJYXJJE` 每股经营现金流。该报表没有提供资产负债率时不伪造该字段；每股现金流和净资产的股数口径未核实前，不构造现金流资产比或现金流权益比。
 
 ## 缺失正文恢复
 

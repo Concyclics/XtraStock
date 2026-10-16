@@ -482,3 +482,48 @@ a strong equal-weight comparison. This factorial study uses fixed rules rather
 than reproducing their characteristic-based optimizer. All model choices still
 come from inspected historical research and require subsequent independent
 validation before production use.
+
+## Financial history and revision timing
+
+Financial facts extracted from current filings, historical vendor metrics, and
+figures parsed from research reports have different coverage and provenance.
+Their catalog entries point to their actual tables. The `financials_raw` records
+in `market.events_raw` preserve the source payload and observation time.
+
+`build_financial_history_panel.py` reads a frozen, checksummed local export and
+the same market/security snapshot used by the account studies. It provides two
+views: a public reconstruction delayed past the latest notice/update/source
+date, and a system view that additionally requires actual ingestion. Both use
+15:00 Beijing decisions, the latest visible financial period and revision, and
+a declared maximum age measured from period end. Ambiguous same-clock versions
+and missing fields remain missing; an older report cannot silently fill them.
+
+The five financial values are reported gross margin, parent-profit/revenue,
+reported cumulative ROE, revenue growth, and parent-profit growth. Percentage
+points become fractions. Reported duration and age accompany the values; ROE is
+not silently annualized. Cash per share stays in the source while its share
+basis remains unverified. The collector uses the vendor's `XSMLL` gross-margin
+field and retains `BPS` and `MGJYXJJE`, rather than expecting unavailable fields.
+
+```sh
+.venv/bin/python apps/finagent/scripts/analytics/build_financial_history_panel.py \
+  --source "$FROZEN_FINANCIAL_SOURCE" --dataset "$FROZEN_MARKET_PANEL" \
+  --output "$FINANCIAL_PANEL_OUTPUT" --max-age-days 550
+.venv/bin/python apps/finagent/scripts/analytics/verify_financial_history_panel.py \
+  --source "$FROZEN_FINANCIAL_SOURCE" --dataset "$FROZEN_MARKET_PANEL" \
+  --panel "$FINANCIAL_PANEL_OUTPUT" --report "$FINANCIAL_VERIFICATION_REPORT"
+```
+
+The verifier checks accepted values against raw payloads, accounts for every
+rejected source row, and independently reconstructs every selected version and
+feature with per-period as-of arrays. It also recomputes annual coverage using
+the original eligibility rules. Coverage counts are eligible security-days,
+not trades, independent trials, or return measurements. Only the primary
+five-year window can supply training labels and scored returns.
+
+[Quality minus junk](https://link.springer.com/article/10.1007/s11142-018-9470-2)
+motivates examining profitability, growth and safety together. These inputs do
+not reproduce its complete quality factor, five-year growth definition or
+long/short portfolio. A subsequent feature ablation must establish whether the
+new information improves costed account results. Vendor revision dates still
+do not certify an archived historical system record.

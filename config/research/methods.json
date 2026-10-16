@@ -775,6 +775,55 @@
         "消融"
       ],
       "implementation_status": "fixed_weight_exposure_factorial_with_independent_budget_audit_research_only"
+    },
+    {
+      "method_key": "revision_aware_financial_quality",
+      "title": "财务修订时点与盈利质量特征",
+      "source": {
+        "title": "Quality minus junk",
+        "authors": [
+          "Clifford S. Asness",
+          "Andrea Frazzini",
+          "Lasse H. Pedersen"
+        ],
+        "year": 2018,
+        "url": "https://link.springer.com/article/10.1007/s11142-018-9470-2",
+        "scope": "美国及其他发达市场的盈利能力、成长和安全性研究；原文多空组合及长期历史不等于本项目A股多头收益。"
+      },
+      "finding": "原文以盈利能力、成长和安全性组织质量信息，发现质量与价格相关，并报告其历史多空组合的风险调整回报；原文结果不能直接视为本项目收益。",
+      "adaptation": "保留供应商原始财报版本，在近五年市场面板中分别构建修订日期约束的公开信息重建与实际系统观察视图。新增毛利率、归母利润收入比、累计ROE及营收和归母利润同比；保留报告累计月份与距期末时间，不自动年化或混用财报。",
+      "required_data": [
+        "证券身份匹配的原始财报字段",
+        "首次公告、供应商更新及实际入库时点",
+        "财务期末与累计月份",
+        "字段单位和缺失状态",
+        "与原行情面板一致的证券和交易日期"
+      ],
+      "tests": [
+        "修订后值不得进入修订日前的信号",
+        "同一可见时点的冲突版本保持缺失",
+        "最新报告的缺项不得从旧报告拼接",
+        "按独立的逐报告期as-of数组核对每个选中的源版本和数值",
+        "训练标签与收益评分限定主窗口",
+        "保留公开重建与系统观察覆盖率的区别"
+      ],
+      "limitations": [
+        "尚未证明新增财务特征改善扣费收益；须进行逐年特征消融和相同执行条件比较。",
+        "供应商更新日期不等于完整历史版本存档，公开重建仍属研究数据。",
+        "归母利润收入比不是合并净利率，累计ROE不能当作全年ROE。",
+        "没有完整复现原文毛利润资产比、五年增长或多空组合。",
+        "每股经营现金流与每股净资产的股数口径尚未核实，因此保留原件而不构造现金流比率输入。"
+      ],
+      "tags": [
+        "财务修订",
+        "盈利质量",
+        "毛利率",
+        "ROE",
+        "成长",
+        "时点",
+        "数据覆盖"
+      ],
+      "implementation_status": "revision_aware_financial_features_independently_verified_research_only"
     }
   ]
 }
