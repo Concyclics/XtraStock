@@ -12,7 +12,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-VERSION = 'balanced-strategy-research-v2'
+VERSION = 'balanced-strategy-research-v3'
 FAMILIES = ('medium_momentum','long_momentum','short_reversal','low_volatility',
             'trend_pullback','momentum_low_vol','reversal_low_vol','defensive_trend')
 
@@ -30,10 +30,108 @@ class Policy:
     signal_lag: int = 1
     round_lots: bool = True
     target_vol: float | None = None
+    weighting: str = 'equal'
+    max_weight: float = 1.0
+    holding_buffer: float = 1.0
+    exposure_floor: float = 0.0
+    risk_rebalance: int | None = None
+    vol_estimator: str = 'market'
+    vol_window: int = 60
+    vol_min_observations: int = 40
+    covariance_shrinkage: float = .25
+    adjustment_fraction: float = 1.0
+    relative_no_trade_band: float = 0.0
 
     @property
     def name(self):
-        return f'{self.family}-h{self.rebalance}-k{self.size}-{self.regime}' + (f'-v{self.target_vol}' if self.target_vol else '')
+        return (f'{self.family}-h{self.rebalance}-k{self.size}-{self.regime}'
+                + (f'-v{self.target_vol}' if self.target_vol else '')
+                + (f'-{self.vol_estimator}-w{self.vol_window}' if self.vol_estimator != 'market' else '')
+                + (f'-step{self.adjustment_fraction}' if self.adjustment_fraction != 1 else '')
+                + (f'-band{self.relative_no_trade_band}' if self.relative_no_trade_band else ''))
+
+
+def turnover_target(current, target, prices, equity, allocation, max_weight, fraction=1., band=0.):
+    """Causal heuristic for partial adjustment and a relative target band.
+
+    Full exits, concentration reductions and reductions needed to meet a lower
+    gross allocation bypass delay. Increases share the remaining gross budget.
+    Execution constraints can still prevent reductions. This does not implement
+    the optimal dynamic trading solution or certify the actual portfolio risk.
+    """
+    if not 0 < fraction <= 1 or not 0 <= band < 1:
+        raise ValueError('invalid turnover policy')
+    if fraction == 1 and band == 0:
+        return target
+    active = target > 0
+    adjusted = np.where(active, current + fraction * (target - current), 0.)
+    within = active & (np.abs(target - current) <= band * target)
+    adjusted = np.where(within, current, adjusted)
+    marked = np.nan_to_num(prices)
+    reduce_gross = float(current @ marked) > equity * allocation + 1e-7
+    over_cap = current * marked > equity * max_weight + 1e-7
+    required_reduction = (target < current) & (reduce_gross | over_cap)
+    adjusted = np.where(required_reduction, target, adjusted)
+    # Bands may suppress sells while permitting buys; budget the latter so the
+    # ideal filled target cannot exceed the same predeclared gross allocation.
+    retained = np.minimum(current, adjusted)
+    increases = np.maximum(0., adjusted - current)
+    budget = max(0., equity * allocation - float(retained @ marked))
+    wanted = float(increases @ marked)
+    if wanted > budget:
+        adjusted = retained + increases * (budget / wanted)
+    return adjusted
+
+
+def portfolio_volatility(returns, signal_index, columns, weights, window=60, minimum=40, shrinkage=.25):
+    """Lagged risk of planned stock weights, with fixed diagonal shrinkage.
+
+    This is a predeclared simple estimator, not the optimal Ledoit-Wolf formula.
+    Missing observations are not zero returns. Cash has zero weight and returns;
+    unfilled orders may make the actual portfolio differ from the planned basket.
+    """
+    if minimum < 2 or window < minimum or not 0 <= shrinkage <= 1:
+        raise ValueError('invalid portfolio risk estimator')
+    weights=np.asarray(weights,float);columns=np.asarray(columns,int)
+    if len(weights)!=len(columns) or np.any(~np.isfinite(weights)) or np.any(weights<0) or weights.sum()>1+1e-9:
+        raise ValueError('invalid portfolio risk weights')
+    if not len(columns):return float('nan'),0
+    if not 0<=signal_index<len(returns):raise ValueError('invalid risk signal date')
+    history=np.asarray(returns[max(0,signal_index-window+1):signal_index+1,columns],float)
+    history=history[np.isfinite(history).all(axis=1)]
+    count=len(history)
+    if count<minimum:return float('nan'),count
+    basket_variance=float(np.var(history@weights,ddof=1))
+    diagonal_variance=float(np.sum(weights**2*np.var(history,axis=0,ddof=1)))
+    variance=(1-shrinkage)*basket_variance+shrinkage*diagonal_variance
+    return float(np.sqrt(max(0.,variance)*252)),count
+
+
+def capped_weights(raw, cap):
+    """Water-fill positive weights; infeasible concentration limits leave cash."""
+    raw=np.asarray(raw,float)
+    if not 0<cap<=1 or np.any(~np.isfinite(raw)) or np.any(raw<=0):
+        raise ValueError('invalid allocation weights')
+    weights=np.zeros_like(raw);active=np.ones(len(raw),bool);budget=1.
+    while active.any() and budget>1e-12:
+        proposal=raw[active]/raw[active].sum()*budget
+        hit=proposal>cap
+        indices=np.flatnonzero(active)
+        if not hit.any():weights[indices]=proposal;break
+        capped=indices[hit];weights[capped]=cap;active[capped]=False
+        budget=1.-weights.sum()
+    return weights
+
+
+def buffered_selection(scores, quantities, size, buffer=1.0):
+    """Retain incumbents within a fixed rank band, then fill with top candidates."""
+    candidates=np.flatnonzero(np.isfinite(scores))
+    order=candidates[np.argsort(-scores[candidates],kind='stable')]
+    if buffer==1.:return order[:size]
+    retain=order[:int(np.ceil(size*buffer))]
+    retain=retain[quantities[retain]>1e-7][:size]
+    fresh=order[~np.isin(order,retain)][:max(0,size-len(retain))]
+    return np.concatenate([retain,fresh])
 
 
 def load_dataset(path, cohort='discovery', until=None):
@@ -49,6 +147,11 @@ def load_dataset(path, cohort='discovery', until=None):
         if a['asset_id'] in by_id and (until is None or a['ex_date']<=until):
             actions.append({**a,'column':by_id[a['asset_id']]})
     d.update(assets=meta,actions=actions,cohort_name=cohort)
+    manifest_path=path/'manifest.json'
+    if manifest_path.exists():
+        primary_since=json.loads(manifest_path.read_text()).get('primary_since')
+        if primary_since:
+            d['primary_since']=primary_since
     return d
 
 
@@ -142,7 +245,10 @@ def metrics(nav, dates, period=20):
         yr=r[np.asarray([str(day).startswith(year) for day in dates])]
         annual[year]={'return':float(np.prod(1+yr)-1),'sessions':len(yr)}
     std=float(np.std(r,ddof=1)) if len(r)>1 else 0
-    return {'net_return':float(nav[-1]/nav[0]-1),'cagr':float((nav[-1]/nav[0])**(252/len(r))-1),
+    days=int((np.datetime64(str(dates[-1]))-np.datetime64(str(dates[0])))/np.timedelta64(1,'D'))+1
+    return {'net_return':float(nav[-1]/nav[0]-1),'cagr':float((nav[-1]/nav[0])**(365.25/days)-1),
+        'cagr_convention':'ACT/365.25, first session date through last session date inclusive',
+        'trading_252_cagr':float((nav[-1]/nav[0])**(252/len(r))-1),
         'maximum_drawdown':float(-np.min(nav/np.maximum.accumulate(nav)-1)),
         'annual_volatility':std*np.sqrt(252),'sharpe_zero_cash':float(np.mean(r)/std*np.sqrt(252)) if std else 0.0,
         'nonoverlap_period_sessions':period,'period_count':len(blocks),'winning_periods':int(np.sum(b>0)),
@@ -174,27 +280,63 @@ def action_schedule(d):
     return by_day,gaps
 
 
-def backtest(d,f,policy,start,end,*,keep_trades=False):
+def backtest(d,f,policy,start,end,*,keep_trades=False,keep_fills=False):
+    """Replay an account; optional fill evidence never participates in decisions.
+
+    ``ex_post_capacity_breach`` is the legacy observed-or-lower-bound NOTIONAL
+    diagnostic, not necessarily a breach of actual share-volume participation.
+    Use execution_diagnostics.audit_execution on ``execution_trace`` to separate
+    these meanings. Preserve the legacy counter for old cashbook comparisons.
+    """
+    if d.get('primary_since') and start<d['primary_since']:
+        raise ValueError('Feature warm-up rows cannot enter scored evaluation')
     if policy.family not in f['score'] or policy.rebalance not in (5,10,20,40,60):raise ValueError('unknown policy')
     if policy.signal_lag<1 or policy.cost_bps<0 or not 0<policy.participation<=.05:raise ValueError('invalid execution policy')
     if policy.regime not in ('none','lagged_market_trend'):raise ValueError('unknown market regime')
+    if policy.weighting not in ('equal','inverse_volatility') or not 0<policy.max_weight<=1:
+        raise ValueError('invalid allocation policy')
+    if policy.holding_buffer<1 or not 0<=policy.exposure_floor<=1 or policy.size<1:
+        raise ValueError('invalid selection policy')
+    if policy.target_vol is not None and policy.target_vol<=0:raise ValueError('invalid volatility budget')
+    if policy.risk_rebalance is not None and policy.risk_rebalance<1:raise ValueError('invalid risk cadence')
+    if policy.vol_estimator not in ('market','portfolio','market_ewma20','market_har20'):raise ValueError('unknown volatility estimator')
+    if policy.vol_estimator in ('market_ewma20','market_har20'):
+        forecasts=f.get('market_risk_forecasts',{}).get(policy.vol_estimator)
+        if policy.target_vol is None or forecasts is None or np.shape(forecasts)!=(len(d['dates']),):
+            raise ValueError('missing market risk forecasts or target')
+        if np.isinf(forecasts).any() or np.any(np.asarray(forecasts)<0):
+            raise ValueError('invalid market risk forecasts')
+    if policy.vol_min_observations<2 or policy.vol_window<policy.vol_min_observations or not 0<=policy.covariance_shrinkage<=1:
+        raise ValueError('invalid portfolio risk estimator')
+    if not 0<policy.adjustment_fraction<=1 or not 0<=policy.relative_no_trade_band<1:
+        raise ValueError('invalid turnover policy')
     dates=d['dates'];indices=np.flatnonzero((dates>=start)&(dates<=end))
     if not len(indices) or indices[0]<policy.signal_lag:raise ValueError('insufficient warmup/calendar')
     n=len(d['symbols']);q=np.zeros(n);cash=policy.initial_cash;receivables=0.;payables={}
     last=np.nan_to_num(d['close'][indices[0]-1],nan=0.0);stale=np.zeros(n,int)
     cost=np.zeros(n);receipts=np.zeros(n);entry=np.full(n,-1,int)
     fee=policy.cost_bps/10000;nav=[cash];exposure=[];daily_turnover=[];trades=[];fill_count=0;fees=0.
-    blocked={'buy':0,'sell':0,'capacity_limited':0,'unverified_action_held':0}
+    blocked={'buy':0,'sell':0,'capacity_limited':0,'unverified_action_held':0,
+             'ex_post_capacity_breach':0,'ex_post_no_volume_fill':0}
     largest_stale=0;worst_stale_weight=0.;minimum_cash=cash;held_anomalies=[];step_log=[]
     events,action_gaps=action_schedule(d)
     amount,amount_bound=liquidity_amount(d);bound_fills=0
     lots=np.where(np.char.startswith(d['symbols'],'688'),200.,100.) if policy.round_lots else np.full(n,1e-8)
+    order=np.empty(0,dtype=int)
+    fill_log=[];action_log=[]
+    def finite(value):
+        return float(value) if np.isfinite(value) else None
     for offset,t in enumerate(indices):
         previous_q=q.copy();reference=last.copy()
         for j,extra,dividend,pay,quality in events.get(int(t),[]):
             reference[j]=(reference[j]-dividend)/(1+extra) if reference[j]>0 else 0.
             last[j]=reference[j]
             if q[j]<=1e-7:continue
+            if keep_fills:
+                action_log.append({'date':str(dates[t]),'symbol':str(d['symbols'][j]),
+                    'shares_before':float(q[j]),'extra_shares_per_share':extra,
+                    'net_dividend':float(q[j]*dividend*(1-policy.dividend_tax)),
+                    'payment_index':pay,'quality':quality})
             entitlement=q[j]*dividend*(1-policy.dividend_tax)
             q[j]*=1+extra
             if entitlement:
@@ -203,31 +345,56 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
             if quality!='verified':blocked['unverified_action_held']+=1
         received=payables.pop(int(t),0.);cash+=received;receivables-=received
         valid=f['valid'][t]
-        tradable=valid&(d['volume'][t]>0)&(d['high'][t]>d['low'][t])&(amount[t]>0)
-        open_price=np.where(valid,d['open'][t],last)
+        # The opening decision must not observe the same day's close, range,
+        # total turnover or retrospective OHLC quality. A printed open and
+        # prior-session liquidity are only a research execution approximation;
+        # exact auction volume, ST/suspension and limit queues remain required
+        # for a production-quality execution reconstruction.
+        opening_observed=np.isfinite(d['open'][t])&(d['open'][t]>0)
+        tradable=opening_observed&f['valid'][t-1]&(d['volume'][t-1]>0)&(amount[t-1]>0)
+        open_price=np.where(opening_observed,d['open'][t],last)
         if np.any((q>1e-7)&(~np.isfinite(open_price)|(open_price<=0))):raise ValueError('held security has no valuation')
-        if offset%policy.rebalance==0:
+        selection_due=offset%policy.rebalance==0
+        risk_due=policy.risk_rebalance is not None and offset%policy.risk_rebalance==0
+        if selection_due or risk_due:
             s=t-policy.signal_lag
-            scores=f['score'][policy.family][s]
-            candidates=np.flatnonzero(np.isfinite(scores))
-            order=candidates[np.argsort(-scores[candidates],kind='stable')]
-            if policy.family!='equal_weight':order=order[:policy.size]
+            if selection_due:
+                scores=f['score'][policy.family][s]
+                order=(np.flatnonzero(np.isfinite(scores)) if policy.family=='equal_weight'
+                       else buffered_selection(scores,q,policy.size,policy.holding_buffer))
             allocation=1.0
-            if policy.regime=='lagged_market_trend' and not f['market_on'][s]:allocation=0.
+            if policy.regime=='lagged_market_trend' and not f['market_on'][s]:allocation=policy.exposure_floor
+            weights=np.empty(0)
+            if len(order):
+                raw=np.ones(len(order))
+                if policy.weighting=='inverse_volatility':
+                    volatility=f['vol20'][s,order]
+                    # Missing risk estimates do not silently become tiny risk.
+                    usable=np.isfinite(volatility)&(volatility>0)
+                    order=order[usable];raw=1/np.maximum(volatility[usable],.005)
+                weights=capped_weights(raw,policy.max_weight)
+            estimated_vol=None;risk_observations=None
             if policy.target_vol is not None:
-                vol=f['market_vol'][s]
+                if policy.vol_estimator=='portfolio':
+                    vol,risk_observations=portfolio_volatility(f['returns'],s,order,weights,
+                        policy.vol_window,policy.vol_min_observations,policy.covariance_shrinkage)
+                elif policy.vol_estimator in ('market_ewma20','market_har20'):
+                    vol=f['market_risk_forecasts'][policy.vol_estimator][s]
+                else:vol=f['market_vol'][s]
+                estimated_vol=float(vol) if np.isfinite(vol) else None
                 allocation*=min(1.,policy.target_vol/max(float(vol),.05)) if np.isfinite(vol) else 0.
             equity=cash+float(q@np.nan_to_num(open_price))+receivables
             target=np.zeros(n)
             if len(order) and allocation>0:
-                per_name=equity*allocation/len(order)
                 good=order[np.isfinite(open_price[order])&(open_price[order]>0)]
-                target[good]=np.floor(per_name/open_price[good]/lots[good])*lots[good]
+                good_weights=weights[np.isfinite(open_price[order])&(open_price[order]>0)]
+                target[good]=np.floor(equity*allocation*good_weights/open_price[good]/lots[good])*lots[good]
+            target=turnover_target(q,target,open_price,equity,allocation,policy.max_weight,
+                                   policy.adjustment_fraction,policy.relative_no_trade_band)
             with np.errstate(divide='ignore',invalid='ignore'):
                 gap=open_price/reference-1
-            # Signal-date ADV is known. Observed daily amount only reduces the
-            # fill cap; it never changes ranking or replaces a rejected name.
-            cap=np.minimum(np.nan_to_num(f['adv'][s]),amount[t])*policy.participation
+            cap=np.minimum(np.nan_to_num(f['adv'][s]),amount[t-1])*policy.participation
+            if keep_fills:prior_cap=cap.copy()
             can_sell=tradable&(gap>-.048)&(reference>0)
             can_buy=tradable&(gap<.048)&(reference>0)
             desired_sell=np.maximum(0,q-target)
@@ -257,7 +424,24 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
             new=(buys>1e-7)&(entry<0);entry[new]=t
             q+=buys;cost+=amounts;cash-=float(amounts.sum())
             fees+=float(amounts.sum()*fee/(1+fee));fill_count+=int(np.sum(sells>1e-7)+np.sum(buys>1e-7))
-            bound_fills+=int(np.sum(((sells>1e-7)|(buys>1e-7))&amount_bound[t]))
+            filled=(sells>1e-7)|(buys>1e-7)
+            bound_fills+=int(np.sum(filled&amount_bound[t-1]))
+            traded_notional=np.nan_to_num((sells+buys)*open_price)
+            blocked['ex_post_capacity_breach']+=int(np.sum(filled&(traded_notional>amount[t]*policy.participation+1e-7)))
+            blocked['ex_post_no_volume_fill']+=int(np.sum(filled&(~np.isfinite(d['volume'][t])|(d['volume'][t]<=0))))
+            if keep_fills:
+                for side,quantities in (('sell',sells),('buy',buys)):
+                    for j in np.flatnonzero(quantities>1e-7):
+                        notional=float(quantities[j]*open_price[j])
+                        fill_log.append({'date':str(dates[t]),'signal_date':str(dates[s]),
+                            'symbol':str(d['symbols'][j]),'side':side,'shares':float(quantities[j]),
+                            'price':float(open_price[j]),'notional':notional,'fee':notional*fee,
+                            'prior_liquidity_cap_notional':float(prior_cap[j]),
+                            'prior_amount_lower_bound':bool(amount_bound[t-1,j]),
+                            'daily_volume_lots':finite(d['volume'][t,j]),
+                            'daily_amount_observed':finite(d['amount'][t,j]),
+                            'daily_low':finite(d['low'][t,j]),'daily_high':finite(d['high'][t,j]),
+                            'daily_quality':int(d['quality'][t,j])})
             turnover=float(sold.sum()+amounts.sum()/(1+fee))/equity
         else:turnover=0.
         minimum_cash=min(minimum_cash,cash)
@@ -274,9 +458,14 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
                 for j in np.flatnonzero(held&(np.abs(f['returns'][t])>.35)))
         if not np.isfinite(wealth) or wealth<=0:raise ValueError('invalid marked NAV')
         nav.append(wealth);exposure.append(marked/wealth);daily_turnover.append(turnover)
-        if keep_trades and offset%policy.rebalance==0:
+        if keep_trades and (selection_due or risk_due):
             step_log.append({'date':str(dates[t]),'signal_date':str(dates[t-policy.signal_lag]),'cash':cash,'nav':wealth,
-                             'positions':int(held.sum()),'exposure':marked/wealth,'turnover':turnover})
+                             'positions':int(held.sum()),'exposure':marked/wealth,'turnover':turnover,
+                             'selection_due':selection_due,'target_allocation':allocation,
+                             'vol_estimator':policy.vol_estimator,'estimated_annual_volatility':estimated_vol,
+                             'risk_observations':risk_observations,
+                             'buy_notional':float(np.nan_to_num(buys*open_price).sum()),
+                             'sell_notional':float(sold.sum()),'selected_symbols':d['symbols'][order].tolist()})
     # Mark open positions and charge a liquidation fee provision, without
     # fabricating final fills or classifying open episodes as winning trades.
     liquidation_fee=float(q@last)*fee
@@ -294,8 +483,15 @@ def backtest(d,f,policy,start,end,*,keep_trades=False):
         'marked_value':float(q[j]*last[j]),'last_observed_date':str(dates[indices[-1]-stale[j]])}
         for j in np.flatnonzero((q>1e-7)&(stale>0))]
     out={'policy':asdict(policy),'name':policy.name,'metrics':m,'dates':dates[indices].tolist(),'nav':nav,
-         'exposure':exposure,'turnover':daily_turnover,'version':VERSION,'production_approved':False}
+         'exposure':exposure,'turnover':daily_turnover,'version':VERSION,'production_approved':False,
+         'execution_assumption':'printed next open; only prior-session sizing/liquidity; gap-limit proxy; no auction/order-book verification'}
     if keep_trades:out.update(trades=trades,rebalance_log=step_log)
+    if keep_fills:
+        out['execution_trace']={'version':'execution-trace-v1','volume_unit':'lots_of_100_shares',
+            'fills':fill_log,'corporate_actions':action_log,'terminal_positions':[
+                {'symbol':str(d['symbols'][j]),'shares':float(q[j]),'mark':float(last[j]),
+                 'marked_value':float(q[j]*last[j]),'liquidation_fee_provision':float(q[j]*last[j]*fee),
+                 'stale_sessions':int(stale[j])} for j in np.flatnonzero(q>1e-7)]}
     return out
 
 

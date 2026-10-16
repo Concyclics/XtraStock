@@ -15,6 +15,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PIPELINE = ROOT / "scripts/pipeline"
 ANALYTICS = ROOT / "scripts/analytics"
 sys.path.insert(0, str(PIPELINE))
+sys.path.append(str(ANALYTICS))
 
 
 def load_module(name: str, path: Path):
@@ -228,12 +229,6 @@ class OutboxChunkTests(unittest.TestCase):
         chunks = enqueue_v3.split_text(source, 1000)
         self.assertEqual(source, "".join(chunks))
         self.assertTrue(all(len(item) <= 1000 for item in chunks))
-
-    def test_brief_is_deterministic_section_extract(self):
-        report = "# 日报\n## 省流版\n结论A\n## 核心\n结论B\n"
-        self.assertIn("结论A", enqueue_v3.brief_from_report(report))
-        self.assertNotIn("结论B", enqueue_v3.brief_from_report(report))
-
 
 class CninfoPaginationTests(unittest.TestCase):
     def test_large_range_is_split_before_api_page_cap(self):

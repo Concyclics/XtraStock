@@ -17,7 +17,7 @@ import subprocess
 import textwrap
 import uuid
 from collections import defaultdict
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +27,9 @@ from common import ROOT, TZ, connect, today
 from data_freshness_v3 import freshness_issue
 from openai_compatible_client import complete as openai_compatible_complete
 from daily_llm_payload import compact_v3_snapshot, inline_json
+from daily_investment_advice import (READER_CONTRACT, reader_claim_error, model_snapshot,
+    load_plan_snapshot, build_actions, render_actions)
+from market_daily_inputs import load_config as market_config, load_valuation_screen, load_sector_attention, report_watchlist, enrich_financials, selection_receipt
 from user_presentation import publish_readable_report, READER_STYLE_PROMPT, strip_boilerplate
 from report_capabilities import analysis_capabilities, usable_evidence, source_digest, has_actionable_recommendation, claim_evidence_error, evidence_numeric_projection
 
@@ -50,27 +53,30 @@ REQUIRED_DATASETS = (
     "kg.temporal_graph",
 )
 SECTIONS = (
-    "省流版",
     "今日核心判断",
+    "每日操作清单",
+    "市场概览",
+    "低估候选与估值观察",
     "今日新增新闻与催化",
-    "主题热度变化",
+    "市场热点分析",
     "研究关注更新",
     "长期候选池更新",
-    "细分产业链观察",
+    "行业与产业链观察",
     "个股观察池",
     "关键证据",
     "今日投资建议",
     "明日跟踪点",
-    "数据质量与限制",
 )
 SECTION_ALIASES = {
+    "主题热度变化": "市场热点分析",
+    "细分产业链观察": "行业与产业链观察",
     "数据质量与时效": "数据质量与限制",
     "数据范围与风险": "数据质量与限制",
     "模型信号边界": "数据质量与限制",
-    "行业与券商观点": "细分产业链观察",
-    "供给约束与风险": "细分产业链观察",
-    "需求与应用场景": "细分产业链观察",
-    "具身智能与新硬件": "细分产业链观察",
+    "行业与券商观点": "行业与产业链观察",
+    "供给约束与风险": "行业与产业链观察",
+    "需求与应用场景": "行业与产业链观察",
+    "具身智能与新硬件": "行业与产业链观察",
     "政策与产业化": "今日新增新闻与催化",
     "市场与个股观察": "个股观察池",
 }
@@ -78,18 +84,14 @@ CLAIM_TYPES = {
     "actual", "forecast", "market", "model_signal", "document_claim",
     "graph_association", "calculation", "data_quality", "interpretation",
 }
-AI_HARDWARE_RE = (
-    r"AI|人工智能|算力|GPU|ASIC|CPO|光模块|光芯片|光通信|HBM|DDR|存储|"
-    r"PCB|HDI|封装|半导体|芯片|服务器|数据中心|液冷|电源|光刻|刻蚀|"
-    r"靶材|光刻胶|六氟化钨|MPO|MLCC|玻璃基板|TGV|铜缆|高速连接|交换机|硅光"
-)
 NUMERIC_RE = re.compile(r"(?<![A-Za-z0-9_-])-?\d+(?:\.\d+)?%?")
-STOCK_RE = re.compile(r"(?<!\d)[0368]\d{5}(?!\d)")
+STOCK_RE = re.compile(r"(?<!\d)[034689]\d{5}(?!\d)")
 ISO_DATE_RE = re.compile(r"(?<!\d)(\d{4})-(\d{2})-(\d{2})(?!\d)")
 DOT_DATE_RE = re.compile(r"(?<!\d)(\d{4})\.(\d{1,2})\.(\d{1,2})(?!\d)")
-CN_DATE_RE = re.compile(r"(?<!\d)(\d{4})年(\d{1,2})月(\d{1,2})日")
-CN_YEAR_MONTH_RE = re.compile(r"(?<!\d)(\d{4})年(\d{1,2})月")
-CN_MONTH_DAY_RE = re.compile(r"(?<!\d)(\d{1,2})月(\d{1,2})日")
+CN_DATE_RE = re.compile(r"(?<!\d)(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
+CN_YEAR_MONTH_RE = re.compile(r"(?<!\d)(\d{4})\s*年\s*(\d{1,2})\s*月")
+CN_MONTH_DAY_RE = re.compile(r"(?<!\d)(\d{1,2})\s*月\s*(\d{1,2})\s*日")
+HALF_YEAR_RANGE_RE = re.compile(r"(?<!\d)(\d{4})\s*年\s*(1\s*[-–至]\s*6|7\s*[-–至]\s*12)\s*月")
 PERIOD_RE = re.compile(r"(?<!\d)(\d{4})\s*(?:年\s*)?(?:([上下])半年|[Hh]([12])|第?([一二三四1234])季度|[Qq]([1-4]))")
 DECLINE_PERCENT_RE = re.compile(r"((?:下降|下滑|下跌|减少|降低)\s*)(\d+(?:\.\d+)?%)")
 ISO_DATETIME_RE = re.compile(
@@ -105,15 +107,13 @@ def json_default(value: Any) -> str:
 
 def fetch_all(sql: str, params: tuple[Any, ...] = (), *, bounded_factor_join=False) -> list[dict[str, Any]]:
     with connect(admin=False) as conn:
-        if bounded_factor_join:
-            # Full-cohort validity remains enforced. Repeated nested-loop hash
-            # checks can take minutes; this query's hash joins take under a second.
-            with conn.transaction():
-                conn.execute('SET TRANSACTION READ ONLY')
-                conn.execute("SET LOCAL statement_timeout='25s'")
+        with conn.transaction():
+            conn.execute('SET TRANSACTION READ ONLY')
+            conn.execute("SET LOCAL statement_timeout='45s'")
+            if bounded_factor_join:
+                # Repeated nested-loop factor validity checks can take minutes.
                 conn.execute('SET LOCAL enable_nestloop=off')
-                return [dict(row) for row in conn.execute(sql,params).fetchall()]
-        return [dict(row) for row in conn.execute(sql, params).fetchall()]
+            return [dict(row) for row in conn.execute(sql, params).fetchall()]
 
 
 def previous_market_date(report_date: dt.date) -> dt.date | None:
@@ -167,19 +167,38 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
     watermarks, hard_gate, blockers = freeze_watermarks(cutoff, report_date, market_date)
     import sys
     if str(ROOT) not in sys.path: sys.path.insert(0,str(ROOT))
-    from scripts.analytics.research_snapshot import load_snapshot,compact_research
+    cfg = market_config()
+    from scripts.analytics.research_asset_registry import load_registry_summary
+    from scripts.analytics.research_intelligence import load_intelligence, intelligence_rows
     with connect() as conn:
-        shared=compact_research(load_snapshot(conn,cutoff,as_of=market_date,limit=10))
-        from scripts.analytics.research_asset_registry import load_registry_summary
-        experiment_registry=load_registry_summary(conn,cutoff,limit=6)
-    from scripts.analytics.research_intelligence import load_intelligence,intelligence_rows
+        with conn.transaction():
+            conn.execute('SET TRANSACTION READ ONLY')
+            conn.execute("SET LOCAL statement_timeout='45s'")
+            experiment_registry = load_registry_summary(conn, cutoff, limit=6)
+            intelligence = load_intelligence(conn, cutoff, as_of=report_date, limit=20, scope='pool')
+            valuation, coverage = load_valuation_screen(conn, cutoff, market_date, cfg)
+            sectors = load_sector_attention(conn, cutoff, report_date, cfg)
+            plan_snapshot = load_plan_snapshot(conn, report_date, cutoff, market_date)
+    pool = (intelligence.get('candidate_pool') or {}).get('rows', [])
+    watchlist = report_watchlist(valuation, pool, sectors, cfg)
     with connect() as conn:
-        intelligence=load_intelligence(conn,cutoff,as_of=report_date,limit=8,scope='focus')
+        with conn.transaction():
+            conn.execute('SET TRANSACTION READ ONLY')
+            conn.execute("SET LOCAL statement_timeout='45s'")
+            enrich_financials(conn,cutoff,market_date,watchlist,valuation)
+    shared = {'status':'available' if watchlist else 'unavailable', 'as_of_date':market_date,
+              'decision_cutoff':cutoff, 'watchlist':watchlist, 'scope':cfg['scope'],
+              'usage':'全市场跨行业研究选题；独立于历史AI硬件观察池，不改动长期候选池或持仓。'}
     evidence: list[dict[str, Any]] = []
+    selected_codes = {r['stock_code'] for r in watchlist}
     for index,row in enumerate(intelligence_rows(intelligence),1):
+        if row.get('component') == 'candidate_pool_trade_plan':
+            continue  # The complete same-day ledger is bound below, including removals.
+        if row.get('component') == 'candidate_pool' and row.get('stock_code') not in selected_codes:
+            continue
         is_pool=row.get('component','').startswith('candidate_pool')
         evidence.append(evidence_item('CAND' if is_pool else 'FOCUS',index,'interpretation',{
-            'entity_id':row.get('stock_code') or row.get('label'),'metric_id':'candidate_pool' if row.get('component','').startswith('candidate_pool') else 'research_focus','value':row,
+            'entity_id':row.get('stock_code') or row.get('label'),'metric_id':('daily_value_plan' if row.get('component')=='candidate_pool_trade_plan' else 'candidate_pool' if row.get('component','').startswith('candidate_pool') else 'research_focus'),'value':row,
             'unit':'evidence_tracking_not_recommendation','as_of_date':row.get('as_of_date') or (intelligence.get('focus') or {}).get('as_of_date'),
             'available_at':row.get('available_at') or (intelligence.get('focus') or {}).get('decision_cutoff'),
             'source_id':'research_focus','quality_status':'unverified'}))
@@ -197,51 +216,57 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
             "quality_status": "verified" if row["quality_status"] == "pass" else "incomplete",
         }))
 
+    # Rank each source separately so the much larger announcement feed cannot
+    # crowd out market news. No industry whitelist is applied.
     documents = fetch_all(
-        """
-        SELECT d.id::text AS source_document_id,d.source_type,d.source_name,d.title,
-               d.published_at,d.url,greatest(d.created_at,d.updated_at,d.published_at) AS system_available_at,
-               left(coalesce(d.content_text,d.content_md,d.raw_text,''),500) AS snippet,
-               q.quality_status,q.quality_score
-        FROM corpus.documents d
-        LEFT JOIN corpus.document_quality q ON q.document_id=d.id
-        WHERE d.created_at <= %s AND d.updated_at <= %s
-          AND d.published_at <= %s
-          AND d.published_at >= %s::date - 7
-          AND (coalesce(d.title,'') || ' ' || left(coalesce(d.content_text,d.content_md,d.raw_text,''),3000)) ~* %s
-          AND coalesce(q.quality_status,'accepted') NOT IN ('template_noise','parse_failed','duplicate','quarantined')
-          AND NOT EXISTS (
-            SELECT 1 FROM corpus.document_quarantine x
-            WHERE x.document_id=d.id AND x.released_at IS NULL
-          )
-        ORDER BY (d.published_at::date=%s::date) DESC,q.quality_score DESC NULLS LAST,d.published_at DESC
-        LIMIT 60
-        """,
-        (cutoff, cutoff, cutoff, report_date, AI_HARDWARE_RE, report_date),
+        """WITH eligible AS (
+          SELECT d.id::text AS source_document_id,d.source_type,d.source_name,d.title,
+            d.published_at,d.url,greatest(d.created_at,d.updated_at,d.published_at) AS system_available_at,
+            left(coalesce(nullif(d.content_text,''),nullif(d.content_md,''),d.raw_text,''),700) AS snippet,
+            q.quality_status,q.quality_score,
+            (CASE WHEN coalesce(d.title,'')~%s THEN 2 ELSE 0 END
+              - CASE WHEN d.source_type='announcement' AND coalesce(d.title,'')~%s THEN 2 ELSE 0 END) relevance,
+            row_number() OVER (PARTITION BY CASE WHEN d.source_type IN ('news','peoples_daily')
+                THEN lower(trim(d.title)) ELSE d.id::text END
+              ORDER BY q.quality_score DESC NULLS LAST,d.published_at DESC,d.id) title_rank
+          FROM corpus.documents d LEFT JOIN corpus.document_quality q ON q.document_id=d.id
+          WHERE greatest(d.created_at,d.updated_at,d.published_at)<=%s
+            AND d.published_at >= %s::date - %s
+            AND d.source_type IN ('news','announcement','research_report','peoples_daily')
+            AND coalesce(q.quality_status,'accepted') NOT IN ('template_noise','parse_failed','duplicate','quarantined')
+            AND NOT EXISTS (SELECT 1 FROM corpus.document_quarantine x
+              WHERE x.document_id=d.id AND x.released_at IS NULL)
+        ), ranked AS (
+          SELECT *,row_number() OVER (PARTITION BY source_type,source_name
+            ORDER BY relevance DESC,published_at DESC,quality_score DESC NULLS LAST,source_document_id) source_rank
+          FROM eligible WHERE title_rank=1
+        ) SELECT * FROM ranked ORDER BY source_rank,relevance DESC,published_at DESC,source_document_id LIMIT %s""",
+        (cfg['market_relevance_pattern'],cfg['routine_disclosure_pattern'],cutoff, report_date, cfg['news_days'], cfg['document_limit']),
     )
     for index, row in enumerate(documents, 1):
         evidence.append(evidence_item("DOC", index, "document_claim", {
             "entity_id": None, "metric_id": "published_document",
             "value": {key: row[key] for key in ("title", "snippet", "source_type", "source_name", "url")},
-            "unit": "document", "as_of_date": row["published_at"].date() if row["published_at"] else None,
+            "unit": "document", "as_of_date": row["published_at"].astimezone(TZ).date() if row["published_at"] else None,
             "available_at": row["system_available_at"], "source_id": row["source_name"],
             "source_document_id": row["source_document_id"],
             "quality_status": "verified" if row["source_type"] == "announcement" else "unverified",
         }))
 
     reports = fetch_all(
-        """
-        SELECT r.document_id::text AS source_document_id,r.report_date,r.report_title,
-               r.institution,r.rating,r.rating_change,r.industry_name,r.stock_code,r.stock_name,
-               greatest(r.available_at,r.created_at,r.updated_at,doc.created_at,doc.updated_at) AS available_at
-        FROM research.reports_resolved r LEFT JOIN corpus.documents doc ON doc.id=r.document_id
-        WHERE r.report_date BETWEEN %s::date - 14 AND %s::date
-          AND greatest(r.available_at,r.created_at,r.updated_at,doc.created_at,doc.updated_at) <= %s
-          AND (coalesce(r.report_title,'') || ' ' || coalesce(r.industry_name,'') || ' ' || coalesce(r.stock_name,'')) ~* %s
-        ORDER BY r.report_date DESC,r.available_at DESC NULLS LAST
-        LIMIT 80
-        """,
-        (report_date, report_date, cutoff, AI_HARDWARE_RE),
+        """WITH eligible AS (
+          SELECT r.document_id::text AS source_document_id,r.report_date,r.report_title,
+            r.institution,r.rating,r.rating_change,r.industry_name,r.stock_code,r.stock_name,
+            greatest(r.available_at,r.created_at,r.updated_at,r.identity_known_at,doc.created_at,doc.updated_at) AS available_at,
+            row_number() OVER (PARTITION BY coalesce(nullif(r.industry_name,''),'未分类')
+              ORDER BY r.report_date DESC,r.available_at DESC NULLS LAST,r.document_id) industry_rank
+          FROM research.reports_resolved r LEFT JOIN corpus.documents doc ON doc.id=r.document_id
+          WHERE r.report_date BETWEEN %s::date - %s AND %s::date
+            AND greatest(r.available_at,r.created_at,r.updated_at,r.identity_known_at,doc.created_at,doc.updated_at)<=%s
+            AND NOT EXISTS (SELECT 1 FROM corpus.document_quarantine q
+              WHERE q.document_id=r.document_id AND q.released_at IS NULL)
+        ) SELECT * FROM eligible ORDER BY industry_rank,report_date DESC,source_document_id LIMIT %s""",
+        (report_date, cfg['report_days'], report_date, cutoff, cfg['report_limit']),
     )
     report_codes = sorted({str(row["stock_code"]) for row in reports if row.get("stock_code")} | {r["stock_code"] for r in shared.get("watchlist",[])})
     for index, row in enumerate(reports, 1):
@@ -255,6 +280,20 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
             "quality_status": "unverified",
         }))
 
+    evidence.append(evidence_item('COVER',1,'calculation',{
+        'metric_id':'market_coverage','value':coverage,'as_of_date':market_date,
+        'available_at':cutoff,'source_id':'market_daily_inputs','quality_status':'unverified'}))
+    for index,row in enumerate(valuation,1):
+        evidence.append(evidence_item('VAL',index,'calculation',{
+            'entity_id':row['stock_code'],'metric_id':'valuation_screen','value':row,
+            'as_of_date':market_date,'available_at':row['available_at'],
+            'source_id':'market_daily_inputs','quality_status':'unverified'}))
+    for index,row in enumerate(sectors,1):
+        evidence.append(evidence_item('HOT',index,'calculation',{
+            'entity_id':row['industry'],'metric_id':'sector_research_attention','value':row,
+            'as_of_date':row['latest_report_date'],'available_at':row['available_at'],
+            'source_id':'market_daily_inputs','quality_status':'unverified'}))
+
     if report_codes and market_date:
         market_rows = fetch_all(
             """
@@ -262,7 +301,7 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
                    b.volume,b.source,b.available_at,b.quality_status,b.price_basis
             FROM market.canonical_bars_daily_v2 b
             JOIN market.assets a ON a.asset_id=b.asset_id
-            WHERE a.symbol=ANY(%s) AND b.dt=%s AND b.available_at <= %s
+            WHERE a.symbol=ANY(%s) AND b.dt=%s AND greatest(b.available_at,b.updated_at) <= %s
             ORDER BY a.symbol LIMIT 80
             """,
             (report_codes, market_date, cutoff),
@@ -283,11 +322,11 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
         FROM factor.valid_daily_scores_v1 f
         JOIN factor.definitions d ON d.factor_id=f.factor_id
         JOIN market.assets a ON a.asset_id=f.asset_id
-        WHERE f.available_at <= %s AND f.updated_at <= %s AND f.dt=%s AND d.lifecycle_status IN ('shadow','production')
+        WHERE f.available_at <= %s AND f.updated_at <= %s AND f.dt=%s AND d.lifecycle_status IN ('shadow','production') AND a.symbol=ANY(%s)
         ORDER BY greatest(coalesce(f.percentile,0),1-coalesce(f.percentile,1)) DESC,f.dt DESC
         LIMIT 80
         """,
-        (cutoff,cutoff,market_date),
+        (cutoff,cutoff,market_date,sorted(selected_codes)),
         bounded_factor_join=True,
     )
     for index, row in enumerate(factors, 1):
@@ -302,6 +341,7 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
             "quality_status": "unverified",
         }))
 
+    graph_codes = sorted(selected_codes | {code for row in sectors for code in (row.get('stock_codes') or [])[:4]})
     graph = fetch_all(
         """
         SELECT rv.relation_version_id::text,se.name source_name,se.metadata->>'stock_code' source_code,
@@ -323,11 +363,11 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
           AND rv.review_status IN ('approved','classified')
           AND coalesce(rv.attributes->'attribution_check'->>'supported','true')<>'false'
           AND coalesce(rv.attributes->>'superseded_by_canonical','false')<>'true'
-          AND (se.name || ' ' || te.name || ' ' || r.relation_type) ~* %(theme)s
+          AND (se.metadata->>'stock_code'=ANY(%(codes)s) OR te.metadata->>'stock_code'=ANY(%(codes)s))
         ORDER BY (rv.review_status='approved') DESC,rv.confidence DESC NULLS LAST
         LIMIT 60
         """,
-        {'date':market_date,'cutoff':cutoff,'theme':AI_HARDWARE_RE},
+        {'date':market_date,'cutoff':cutoff,'codes':graph_codes},
     )
     for index, row in enumerate(graph, 1):
         evidence.append(evidence_item("KG", index, "graph_association", {
@@ -346,7 +386,7 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
         evidence.append(evidence_item('POOL',index,'model_signal',{
             'entity_id':item['stock_code'],'metric_id':'frozen_research_watchlist','value':item,
             'unit':'research_watchlist_not_trade_instruction','as_of_date':shared.get('as_of_date'),
-            'available_at':shared.get('decision_cutoff'),'source_id':'analytics.research_snapshot_daily',
+            'available_at':shared.get('decision_cutoff'),'source_id':'market_daily_inputs',
             'quality_status':'unverified'}))
     result = {
         "shared_research":shared,
@@ -357,7 +397,9 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
             "focus_status":(intelligence.get("focus") or {}).get("status"),
             "focus_cutoff":(intelligence.get("focus") or {}).get("decision_cutoff"),
             "usage":intelligence["usage"]},
-        "schema_version": "ai_hardware_report_snapshot:v3",
+        "schema_version": "market_report_snapshot:v4",
+        "report_scope": cfg["scope"],
+        "selection_receipt": selection_receipt(watchlist, documents, reports, valuation, sectors),
         "report_date": report_date,
         "decision_cutoff": cutoff,
         "market_date": market_date,
@@ -371,6 +413,14 @@ def build_snapshot(report_date: dt.date, cutoff: dt.datetime) -> dict[str, Any]:
         },
     }
 
+    for index, plan in enumerate(plan_snapshot.get('plans', []), 1001):
+        evidence.append(evidence_item('CAND', index, 'interpretation', {
+            'entity_id': plan['stock_code'], 'metric_id': 'daily_value_plan',
+            'value': {**plan, 'component': 'candidate_pool_trade_plan', 'plan_date': str(report_date),
+                      'mode': plan_snapshot.get('mode'), 'actionable': plan_snapshot.get('actionable', False)},
+            'as_of_date': plan_snapshot.get('market_date'), 'available_at': plan_snapshot.get('decision_at'),
+            'source_id': 'quant.daily_plan_revisions', 'quality_status': 'unverified'}))
+    result['investment_advice'] = build_actions(result, plan_snapshot)
     result["analysis_capabilities"] = analysis_capabilities(result)
     return result
 
@@ -390,38 +440,30 @@ def degraded_claims(snapshot: dict[str, Any], reason: str | None = None) -> list
 
 
 def build_prompt(snapshot_path: Path, claims_path: Path) -> str:
-    allowed_sections = json.dumps(SECTIONS, ensure_ascii=False)
+    allowed_sections = json.dumps([s for s in SECTIONS if s != '每日操作清单'], ensure_ascii=False)
     return textwrap.dedent(f"""
-        你是金融研究 Agent 的解释层，不是数据计算层。读取 `{snapshot_path}`，只输出结构化 claims。
-
-        将 JSON 写入 `{claims_path}`，顶层格式严格为：
+        你是全A股每日投资建议的研究编辑，围绕候选股票、估值和热点给出具体判断。读取 `{snapshot_path}`。
+        将 JSON 写入 `{claims_path}`，只返回：
         {{"claims":[{{"claim_id":"C001","section_name":"今日核心判断","claim_type":"interpretation",
         "claim_text":"...","evidence_ids":["DOC0001"],"numeric_value":null,"unit":null,
         "as_of_date":"YYYY-MM-DD","metadata":{{"recommendation":false}}}}]}}
 
-        规则：
-        - section_name 只能从以下列表原样选择，不得自创章节名：{allowed_sections}
-        - 依据 analysis_capabilities 分别判断能力；hard_gate_passed=false 仅限制买卖建议，不禁止对已收录新闻、财务事实、行情和关联作有证据的研究分析。
-        - 门禁未通过时仍完成来源摘要、重要变化、相互支持或矛盾的证据、条件化解释和下一步跟踪问题；不要把整份日报写成系统故障说明。只在“数据质量与限制”简述与本期结论有关的缺口。
-        - analysis_capabilities.stock_recommendations=false 时不生成“今日投资建议”章节或买卖操作指令，metadata.recommendation 必须为 false。研究关注不等同推荐买入。
-        - candidate_pool 证据用于“长期候选池更新”：说明池规模和变化；有成员证据时至少选两家公司，分别解释新增、保留或淘汰原因、长期财务论点、短期趋势分和月度复核日期。没有成员变化也要解释保留依据，不能只报池规模。5/20日预测仅引用已提供的数值和到期日；排序分不是收益率。研究池可有跨行业公司，与 AI 硬件观察池分开展示。
-        - research_focus 证据用于“研究关注更新”和“明日跟踪点”：解释新增/修订资料、可检验的问题以及何时复核。
-        - AI硬件“个股观察池”使用 shared_research.watchlist / frozen_research_watchlist 证据；“长期候选池更新”使用 candidate_pool 成员证据。分别解释记录中的入选、保留及剔除原因，不另造成员。
-        - 仅 prediction_eligible=true 的情景可给出数值预测；缺失或未通过验证时省略数值预测栏目，不插入重复的“暂不提供”占位。确实影响本期结论的模型误差或输入缺口在数据说明中说一次。券商目标价单列来源和期限。
-        - candidate_pool_summary.forecast_validation 提供周/月预测的真实回测误差、基线、区间覆盖率、滚动胜出次数和差值置信区间。差值区间跨零不能称为预测能力已提升，覆盖率不能称为上涨概率。用本期已核实的走势、财务和事件解释方向驱动、观察期限及验证/失效条件；不因模型未通过而省略公司分析，不把候选分数换成预期收益或目标价。
-        - 模型误差和误差差值保留3位小数，覆盖率保留2位；只展示影响判断的比较结果，不抄写长小数或整份验证记录。
-        - 若同时引用整体平均误差和配对误差差值，注明后者按信号日等权，不能写成前两个样本均值直接相减；也可以只报差值置信区间是否跨零。
-        - 只能引用 snapshot.evidence 中存在的 evidence_id，每个事实句必须绑定证据。
-        - claim_text 面向普通读者，用中文解释来源、数据日期和可靠性；不要堆砌数据库字段名、内部编号或状态码。shadow 可称“研究阶段因子”；同源价格和验证状态的共同限制集中说明一次，不逐股重复；evidence_ids 仍须保留准确编号供核验。
-        - 不自行计算涨跌幅、排名、估值或统计；不得生成证据中没有的数字、日期、股票代码。
-        - actual、forecast、market、model_signal、document_claim、graph_association 必须严格区分。
-        - 因子 percentile 不是上涨概率；candidate/shadow/degraded 都不能写成生产信号。
-        - 图谱路径只表示关联，不能写成因果；仅 observed_fact 可称已核验事实。
-        - 当日证据优先于历史证据，滞后信息必须披露具体日期。
-        - 个股观察必须同时引用市场证据和至少一条文档/正式披露证据。
+        {READER_CONTRACT}
         {READER_STYLE_PROMPT}
-        - 共同数据口径与实质缺口集中在“数据质量与限制”用1-2条说明；该栏目没有实质内容时省略。不要把无关公司章程等材料凑成AI硬件催化，也不要为凑章节讨论不存在的结论。
-        - 生成 12-30 条简短 claim，覆盖主要章节。不要输出 Markdown，不要修改数据库或源码。
+        - 只生成一份完整日报，不生成“省流版”。允许章节：{allowed_sections}。没有内容的章节直接省略。
+        - 开篇两到三条核心判断：今天重点关注什么、为什么、什么变化会改变判断。每家公司集中解释，避免多章重复。
+        - 市场概览有可用指数/涨跌统计时引用；否则用真实行业事件概括当日主线，不罗列数据库覆盖数或解释未提供哪些统计。
+        - valuation_screen 至少选择两家公司，交代预测财年、机构数、预测PE和实际财务支撑。supported_discount=true 才能称已确认同业折价；否则直接使用“估值观察”，不附核验失败说明。同业折价不是未来涨幅，金融业使用专用估值思路。
+        - 价格保留两位小数，PE与百分比保留两至三位；EPS允许来源原有精度。只做显示舍入，不自行推导新估值或收益。
+        - sector_research_attention 衡量已收录研报关注度，不是资金流入或涨幅。结合新闻、公告、财务和图谱说明哪些公司受益、传导路径及后续触发事件。
+        - candidate_pool 用于长期候选池更新，至少两家公司说明新增、保留或移出原因，以及业务论点和下一次复核日期。不把研究分数换成上涨概率或收益率。
+        - “个股观察池”仅使用 frozen_research_watchlist 成员，结合实际财务和估值解释重点关注的理由。候选入池/移除与持仓买入/卖出分别处理。
+        - 当天交易计划已在日报前冻结；每日操作清单由程序从该账本直接生成。不要生成“今日投资建议”买卖指令段，不复述计划的数据复核队列，不自行发明价格、成本或成交。
+        - 仅 prediction_eligible=true 的情景可引用数值预测；其余省略数值预测栏目。用盈利驱动、催化、观察期限和失效条件完成分析。券商目标价必须注明机构、日期和期限。
+        - claim_text 只引用 evidence 中真实存在的 evidence_id；数字、日期和证券必须有对应依据。历史财务注明报告期，机构盈利预测和正式实际业绩分别陈述。
+        - actual、forecast、market、model_signal、document_claim、graph_association 严格区分；图谱关联不自动代表因果，因子分数不代表收益。
+        - 选题面向全市场，新闻和公告优先说明对候选公司的经营影响；无实质联系的会议、章程和泛化故事不凑篇幅。
+        - 输出 12-26 条简短 claim，不输出 Markdown、思考过程或内部诊断。
     """).strip() + "\n"
 
 
@@ -466,7 +508,7 @@ def run_openai_compatible(
     reasoning_effort: str,
 ) -> Path:
     output = run_dir / "provider_last_message.txt"
-    inline_snapshot = inline_json(compact_v3_snapshot(snapshot), max_chars=100_000)
+    inline_snapshot = inline_json(compact_v3_snapshot(model_snapshot(snapshot)), max_chars=100_000)
     remote_prompt = prompt + """
 
 当前后端不能读取本地路径。以下 inline_snapshot 是本次不可变数据快照的完整、
@@ -512,13 +554,13 @@ def repair_openai_compatible_claims(
 ) -> Path:
     output = run_dir / "provider_repair_message.txt"
     repair_input = {
-        "snapshot": compact_v3_snapshot(snapshot),
+        "snapshot": compact_v3_snapshot(model_snapshot(snapshot)),
         "rejected_claims": claims,
         "validation_errors": errors,
         "allowed_sections": SECTIONS,
         "allowed_claim_types": sorted(CLAIM_TYPES),
     }
-    prompt = READER_STYLE_PROMPT + "\n" + """
+    prompt = READER_CONTRACT + "\n" + READER_STYLE_PROMPT + "\n" + """
 修复下面的日报 claims，只返回 {"claims":[...]} JSON。保留有证据的结论，删除或改写校验失败的内容。
 section_name 和 claim_type 只能使用允许值；每条必须引用真实 evidence_id；不得新增证据中没有的数字、日期或股票代码。
 不要输出思考过程、Markdown 或其他文字。
@@ -578,6 +620,7 @@ def scalar_tokens(value: Any) -> set[str]:
         numeric_text = ISO_DATETIME_RE.sub("", text)
         numeric_text = ISO_DATE_RE.sub("", numeric_text)
         numeric_text = DOT_DATE_RE.sub("", numeric_text)
+        numeric_text = HALF_YEAR_RANGE_RE.sub("", numeric_text)
         numeric_text = CN_DATE_RE.sub("", numeric_text)
         numeric_text = CN_YEAR_MONTH_RE.sub("", numeric_text)
         numeric_text = CN_MONTH_DAY_RE.sub("", numeric_text)
@@ -591,11 +634,11 @@ def date_tokens(value: Any) -> set[str]:
     if isinstance(value, dict):
         for item in value.values():
             dates.update(date_tokens(item))
-        years = {item[:4] for item in dates if re.fullmatch(r"\d{4}-\d{2}-\d{2}", item)}
-        month_days = {item for item in dates if re.fullmatch(r"\d{2}-\d{2}", item)}
-        dates.update(f"{year}-{month_day}" for year in years for month_day in month_days)
+        # Different dates in one document do not authorize every combination
+        # of their years and month/day components.
         period_end=str(value.get('period_end') or '')
         if re.fullmatch(r'\d{4}-06-30',period_end):dates.add(period_end[:4]+'-H1')
+        if re.fullmatch(r'\d{4}-03-31',period_end):dates.add(period_end[:4]+'-Q1')
     elif isinstance(value, list):
         for item in value:
             dates.update(date_tokens(item))
@@ -611,6 +654,8 @@ def date_tokens(value: Any) -> set[str]:
             dates.add(f"{int(year):04d}-{int(month):02d}")
         for month, day in CN_MONTH_DAY_RE.findall(text):
             dates.add(f"{int(month):02d}-{int(day):02d}")
+        for year,months in HALF_YEAR_RANGE_RE.findall(text):
+            dates.add(year+'-H'+('1' if months.startswith('1') else '2'))
         for year,half,half_num,quarter,quarter_num in PERIOD_RE.findall(text):
             if half or half_num:dates.add(year+'-H'+(half_num or ('1' if half=='上' else '2')))
             else:
@@ -628,6 +673,51 @@ def normalized_numeric_token(token: str) -> str:
     if value == 0:
         return "0"
     return format(value.normalize(), "f")
+
+
+def supported_display_number(token, allowed):
+    """Allow explicit decimal display rounding, never scale or change sign."""
+    normalized = normalized_numeric_token(token)
+    if normalized in allowed:
+        return True
+    raw = token.rstrip('%')
+    if not re.fullmatch(r'-?\d+\.\d{2,3}', raw):
+        return False
+    precision = Decimal('1').scaleb(-len(raw.split('.')[1]))
+    for value in allowed:
+        if '.' not in value or len(value.split('.')[1]) <= -precision.as_tuple().exponent:
+            continue
+        try:
+            if Decimal(value).quantize(precision, rounding=ROUND_HALF_UP) == Decimal(raw):
+                return True
+        except InvalidOperation:
+            continue
+    return False
+
+
+def strip_supported_amounts(text, evidence):
+    """Verify explicit 元→万元/亿元 display conversions against CNY facts only."""
+    amounts = []
+    def collect(value):
+        if isinstance(value, dict):
+            if value.get('unit') in ('CNY', '元') and value.get('value') is not None:
+                try:
+                    number = Decimal(str(value['value']))
+                    if number.is_finite():
+                        amounts.append(number)
+                except InvalidOperation:
+                    pass
+            for item in value.values():
+                collect(item)
+        elif isinstance(value, list):
+            for item in value:
+                collect(item)
+    collect(evidence)
+    def replace(match):
+        number, unit = match.groups()
+        allowed = {normalized_numeric_token(str(a / (10_000 if unit == '万元' else 100_000_000))) for a in amounts}
+        return unit if supported_display_number(number, allowed) else match.group(0)
+    return re.sub(r'(?<![\d.])(-?\d+(?:\.\d+)?)\s*(万元|亿元)', replace, text)
 
 
 def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -649,6 +739,12 @@ def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> t
         claim_id = str(claim.get("claim_id") or f"C{index:03d}")
         claim["claim_id"] = claim_id
         claim_errors: list[str] = []
+        if snapshot.get("report_scope") == "all_a_share":
+            editorial_error = reader_claim_error(claim)
+            if editorial_error:
+                claim_errors.append(editorial_error)
+            if claim.get("section_name") == "每日操作清单":
+                claim_errors.append("action_section_is_rendered_from_ledger")
         if not strip_boilerplate(str(claim.get("claim_text") or "")).strip():
             claim_errors.append("empty_or_boilerplate_only_claim")
         if claim_id in seen:
@@ -658,7 +754,7 @@ def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> t
         if section_name in SECTION_ALIASES:
             section_name = SECTION_ALIASES[section_name]
             claim["section_name"] = section_name
-        if section_name not in SECTIONS:
+        if section_name not in SECTIONS and not (section_name == "数据质量与限制" and snapshot.get("report_scope") != "all_a_share"):
             claim_errors.append("invalid section_name")
         if claim.get("claim_type") not in CLAIM_TYPES:
             claim_errors.append("invalid claim_type")
@@ -693,6 +789,7 @@ def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> t
         numeric_text = ISO_DATETIME_RE.sub("", clean_text)
         numeric_text = ISO_DATE_RE.sub("", numeric_text)
         numeric_text = DOT_DATE_RE.sub("", numeric_text)
+        numeric_text = HALF_YEAR_RANGE_RE.sub("", numeric_text)
         numeric_text = CN_DATE_RE.sub("", numeric_text)
         numeric_text = CN_YEAR_MONTH_RE.sub("", numeric_text)
         numeric_text = CN_MONTH_DAY_RE.sub("", numeric_text)
@@ -700,12 +797,13 @@ def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> t
         # A stated decline is a negative change; never accept an unsupported
         # positive increase by discarding the sign of the cited source.
         numeric_text = DECLINE_PERCENT_RE.sub(lambda m:m.group(1)+'-'+m.group(2),numeric_text)
+        numeric_text = strip_supported_amounts(numeric_text, selected)
         allowed_numbers = {
             normalized_numeric_token(token) for token in allowed if NUMERIC_RE.fullmatch(token)
         }
         unsupported_numbers = sorted({
             token for token in NUMERIC_RE.findall(numeric_text)
-            if normalized_numeric_token(token) not in allowed_numbers
+            if not supported_display_number(token, allowed_numbers)
         })
         if unsupported_numbers:
             claim_errors.append("unsupported numbers: " + ",".join(unsupported_numbers))
@@ -723,18 +821,22 @@ def validate_claims(claims: list[dict[str, Any]], snapshot: dict[str, Any]) -> t
 
 
 def render_report(report_date: dt.date, cutoff: dt.datetime, market_date: dt.date | None,
-                  claims: list[dict[str, Any]], status: str, blockers: list[str]) -> str:
+                  claims: list[dict[str, Any]], status: str, blockers: list[str], advice=None) -> str:
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for claim in claims:
-        if claim.get("validation_status") == "verified":
+        if claim.get("validation_status") == "verified" and not reader_claim_error(claim):
             grouped[claim["section_name"]].append(claim)
     lines = [
-        f"# AI硬件盘前日报 {report_date.isoformat()}", "",
-        f"- 报告状态：{status}",
-        f"- 决策知识截止：{cutoff.isoformat()}",
+        f"# 全市场每日投资建议 {report_date.isoformat()}", "",
+        f"- 信息截止：{cutoff.astimezone(TZ).strftime('%Y-%m-%d %H:%M')}（北京时间）",
         f"- 行情基准日：{market_date.isoformat() if market_date else '无可用交易日'}", "",
     ]
     for section in SECTIONS:
+        if section == '每日操作清单':
+            action_text = render_actions(advice or {})
+            if action_text:
+                lines.extend(['## 每日操作清单', '', action_text, ''])
+            continue
         section_claims = grouped.get(section, [])
         if not section_claims:
             continue
@@ -743,8 +845,6 @@ def render_report(report_date: dt.date, cutoff: dt.datetime, market_date: dt.dat
             refs = ", ".join(claim["evidence_ids"])
             lines.append(f"- {claim['claim_text']} [evidence: {refs}]")
         lines.append("")
-    if blockers:
-        lines.extend(["### 硬门禁阻断项", "", *[f"- `{item}`" for item in blockers], ""])
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -788,7 +888,10 @@ def generate_report_claims(snapshot, snapshot_json, run_dir, args):
     else:
         try:
             claims_target = run_dir / "report_claims.json"
-            prompt = build_prompt(run_dir / "data_snapshot.json", claims_target)
+            editorial_path = run_dir / "editorial_snapshot.json"
+            editorial_path.write_text(json.dumps(model_snapshot(snapshot_json), ensure_ascii=False,
+                                                indent=2, default=json_default) + "\n", encoding="utf-8")
+            prompt = build_prompt(editorial_path, claims_target)
             (run_dir / "prompt.txt").write_text(prompt, encoding="utf-8")
             if args.provider == "codex":
                 output = run_codex(run_dir, prompt, args.model, args.timeout, args.reasoning_effort)
@@ -829,7 +932,7 @@ def generate_report_claims(snapshot, snapshot_json, run_dir, args):
     substantive = [c for c in verified if c.get('claim_type') != 'data_quality']
     if not verified:
         status = 'quarantined'
-    elif generation_mode == 'source_digest' or final_errors or not snapshot['hard_gate_passed']:
+    elif generation_mode == 'source_digest' or final_errors or (not snapshot['hard_gate_passed'] and snapshot.get('report_scope') != 'all_a_share'):
         status = 'degraded'
     elif substantive:
         status = 'published'
@@ -881,11 +984,11 @@ def main() -> int:
 
     persist_claims(run_id, claims)
     report_text = render_report(
-        report_date, cutoff, snapshot["market_date"], claims, status, snapshot["hard_gate_blockers"],
+        report_date, cutoff, snapshot["market_date"], claims, status, snapshot["hard_gate_blockers"], snapshot.get("investment_advice"),
     )
     run_report = run_dir / "report.md"
     run_report.write_text(report_text, encoding="utf-8")
-    output_dir = DAILY_DIR if args.publish and status in {"published", "degraded"} else SHADOW_DIR
+    output_dir = DAILY_DIR if args.publish and status == "published" else SHADOW_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / f"{report_date.isoformat()}.md"
     publish_readable_report(run_report, output_path, snapshot_path)
@@ -897,6 +1000,11 @@ def main() -> int:
         "generation_mode": generation_mode, "analysis_capabilities": snapshot.get("analysis_capabilities"),
         "unresolved_errors": [f"{c.get('claim_id')}: {c.get('validation_error')}" for c in claims if c.get('validation_status')=='rejected'],
         "status": status,
+        "integrated_advice": {k:v for k,v in snapshot.get('investment_advice', {}).items()
+                              if k not in ('source_plan', 'actions')},
+        "reader_diagnostics": {'hard_gate_blockers': snapshot['hard_gate_blockers'],
+                               'forecast_validation': [e['value'].get('forecast_validation') for e in snapshot['evidence']
+                                   if isinstance(e.get('value'),dict) and e['value'].get('component')=='candidate_pool_summary']},
         "model": args.model, "reasoning_effort": args.reasoning_effort, "provider": args.provider,
     }
     (run_dir / "validation.json").write_text(
@@ -910,6 +1018,12 @@ def main() -> int:
             """,
             (status, Jsonb(validation), str(output_path), run_id),
         )
+    delivery_receipt = {'format': 'integrated-daily-advice-v1', 'report_run_id': str(run_id),
+                        'report_date': report_date.isoformat(), 'shadow': not args.publish or output_dir == SHADOW_DIR,
+                        'report_sha256': hashlib.sha256(output_path.read_bytes()).hexdigest(),
+                        'plan_run_id': snapshot.get('investment_advice', {}).get('plan_run_id'),
+                        'published_plan_ids': snapshot.get('investment_advice', {}).get('published_plan_ids', [])}
+    output_path.with_suffix('.delivery.json').write_text(json.dumps(delivery_receipt, ensure_ascii=False, indent=2) + '\n')
     print(json.dumps({"report_run_id": str(run_id), "status": status, "output_path": str(output_path), **validation}, ensure_ascii=False))
     return 0 if status in {"published", "degraded"} else 2
 

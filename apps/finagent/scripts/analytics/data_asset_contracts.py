@@ -4,6 +4,10 @@ SQL and derived indexes are different grains; this catalog never certifies cover
 """
 
 DATASETS=[
+ ('research.earnings_observations','盈利预测逐项观测','sql','research.earnings_observations','immutable source + fiscal year + metric + observation','EPS元/股与净利润元分列；当前API只从采集时可见；正文历史重建不等于系统当时已知。',['research.reports_resolved']),
+ ('quant.daily_value_plans','每日交易计划与变更账本','sql','quant.daily_plan_runs;quant.daily_plan_revisions;quant.daily_plan_events','run + stock + append-only event','日报完成后冻结；候选不等于持仓；估值情景不等于概率预测；影子计划不能触发买卖提醒。',['analytics.candidate_pool','research.earnings_observations']),
+ ('quant.daily_value_paper','限价模拟账户与成交','sql','quant.daily_plan_accounts;quant.daily_plan_sessions','account + verified trading session','模拟账本；按真实可见时间、限价、费用和T+1重放；缺少持仓估值或公司行动时不编造净值。',['quant.daily_value_plans','market.canonical_bars_daily_v2']),
+ ('research.quant_methods','量化方法与原始研究来源','sql','research.quant_method_versions','method_key + content version','原始论文结论、项目改编、数据前提和验收对照分别保存；外部研究不等于本项目已验证收益。',[]),
  ('research.reports_resolved','规范化证券身份的研报','sql','research.reports_resolved','document_id','分析按当前规范证券身份连接，原报告代码与身份实际可见时点保留；采集仍写原始research.reports。',['corpus.documents','market.lifecycle']),
  ('company.filings','官方公告元数据与正文入口','sql','company.filings','filing_id','公告目录记录不代表PDF、正文或OCR均完整；关联统一文档及附件。',['corpus.documents']),
  ('corpus.document_quality','正文质量与解析覆盖','sql','corpus.document_quality','document_id','原生正文、完整OCR、检索及向量是不同状态，不以任一成功推断全部完成。',['corpus.documents']),
@@ -25,7 +29,9 @@ DATASETS=[
  ('factor.daily_scores','可用因子得分','sql','factor.valid_daily_scores_v1','asset_id + dt + factor_id','使用有效视图，核对版本、全样本及可见时间。',['factor.feature_daily']),
  ('market.corporate_actions','公司行动与复权','sql','market.corporate_actions;market.adjustment_factors_daily','asset_id + event/version/date','价格收益必须匹配复权版本；缺失公司行动不能用零值替代。',['market.canonical_bars_daily_v2']),
  ('market.lifecycle','证券身份与交易状态','sql','market.assets;market.asset_lifecycle_versions;market.trading_calendar','asset_id + validity interval','区分代码变更、退市、停牌及非交易日。',[]),
- ('company.financial_metrics','结构化财务指标','sql','company.financial_statement_metrics','asset + period + metric + revision','从有来源、单位和口径的财务事实派生；不把缺项填成零。',['company.financial_facts']),
+ ('company.financial_metrics','供应商历史财务指标','sql','company.financial_metrics','asset + report period + metric + source','保留首次公告、供应商修订和实际入库时点；修订后的数值不能按首次公告日回填；不等于官方原始财报版本。',['market.financial_events']),
+ ('company.financial_statement_metrics','研报解析的财务指标','sql','company.financial_statement_metrics','asset + period + metric + source document','由研报正文抽取，须核实单位、财务口径和原文；不能冒充完整官方财务事实。',['corpus.documents']),
+ ('market.financial_events','保留版本的供应商财报原始记录','sql','market.events_raw','event ID; category=financials_raw','原始字段、公告日期、更新日期和实际入库时间共同保留；同一时点冲突版本不能择优回填历史。',[]),
  ('factor.research','因子定义、评价与生命周期','sql','factor.definitions;factor.factor_health_daily','factor_id + version/date','candidate、shadow、retired、production分别使用；登记不等于批准。',['factor.daily_scores']),
  ('analytics.forecast_models','预测模型与学习结果','sql','analytics.forecast_models;analytics.learning_models_v1','model_id/version','模型参数和验证记录以SQL为准；研究模型不自动提供生产预测。',['factor.feature_daily']),
  ('analytics.forecast_outputs','预测输出及其证据','sql','analytics.asset_forecast_daily','asset + date + horizon + model','须同时核对批准、可见时点和基线/成本验收，不能只按有数值使用。',['analytics.forecast_models']),

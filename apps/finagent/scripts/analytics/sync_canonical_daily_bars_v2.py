@@ -98,7 +98,12 @@ FROM selected
 
 # Current-system-known lifecycle reconstruction; never an assertion that this
 # state was known historically. Historical features retain separate PIT cutoffs.
-COVERAGE_SQL = """
+try:
+    from .lifecycle_evidence import lifecycle_order
+except ImportError:
+    from lifecycle_evidence import lifecycle_order
+
+COVERAGE_SQL = f"""
 WITH stock_universe AS (
   SELECT asset_id FROM market.assets WHERE asset_type='stock'
     AND NOT (metadata ? 'identity_alias_of')
@@ -108,14 +113,14 @@ WITH stock_universe AS (
   WHERE v.valid_from <= %(expected_date)s
     AND (v.valid_to IS NULL OR v.valid_to >= %(expected_date)s)
     AND v.available_at <= %(lifecycle_cutoff)s
-  ORDER BY v.asset_id,v.available_at DESC,v.lifecycle_version_id DESC
+  ORDER BY v.asset_id,{lifecycle_order('v')}
 ), eligible_members AS (
   SELECT asset_id FROM lifecycle_latest
-  WHERE lifecycle_status='active' AND is_tradable AND NOT is_suspended
+  WHERE lifecycle_status='active' AND is_tradable AND NOT is_suspended AND quality_status<>'conflict'
 ), eligible AS (SELECT count(*) AS assets FROM eligible_members),
 unknown_members AS (
   SELECT a.asset_id FROM stock_universe a LEFT JOIN lifecycle_latest v USING(asset_id)
-  WHERE v.asset_id IS NULL OR v.lifecycle_status='unknown'
+  WHERE v.asset_id IS NULL OR v.lifecycle_status='unknown' OR v.quality_status='conflict'
 ), unknown_lifecycle_candidates AS (SELECT count(*) AS assets FROM unknown_members),
 unknown_in_actual AS (
   SELECT count(DISTINCT b.asset_id) AS assets FROM market.canonical_bars_daily_v2 b
@@ -123,7 +128,7 @@ unknown_in_actual AS (
 ), nontradable_in_actual AS (
   SELECT count(DISTINCT b.asset_id) AS assets FROM market.canonical_bars_daily_v2 b
   JOIN lifecycle_latest v USING(asset_id) WHERE b.dt=%(expected_date)s
-    AND v.lifecycle_status<>'unknown'
+    AND v.lifecycle_status<>'unknown' AND v.quality_status<>'conflict'
     AND (v.lifecycle_status<>'active' OR NOT v.is_tradable OR v.is_suspended)
 ), actual AS (
   SELECT count(DISTINCT b.asset_id) FILTER (WHERE b.asset_id IN (SELECT asset_id FROM eligible_members)) AS assets,
@@ -325,7 +330,7 @@ def main() -> int:
                 "fallback": int(summary["fallback"] or 0),
                 "eligible_semantics": "latest system-known tradable lifecycle version valid on target date",
                 "lifecycle_cutoff":lifecycle_cutoff.isoformat(),
-                "lifecycle_resolution":"available_at DESC,lifecycle_version_id DESC",
+                "lifecycle_resolution":lifecycle_order(),
                 "nontradable_actual_assets":nontradable_actual,
                 "unknown_lifecycle_assets": unknown_lifecycle,
                 "unknown_actual_assets": unknown_actual,"observed_stock_assets":int(latest["observed_assets"] or 0),"coverage_numerator":"observed intersect eligible",

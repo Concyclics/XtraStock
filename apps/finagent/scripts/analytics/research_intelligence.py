@@ -6,9 +6,9 @@ from contextlib import nullcontext
 from zoneinfo import ZoneInfo
 
 
-def load_intelligence(conn, cutoff, as_of=None, stock_codes=None, limit=10, scope='all', experiment_project=None, experiment_filters=None, experiment_offset=0):
-    if scope not in {'all', 'focus', 'learning','pool','experiments'}:
-        raise ValueError('scope must be all, focus, learning, pool or experiments')
+def load_intelligence(conn, cutoff, as_of=None, stock_codes=None, limit=10, scope='all', experiment_project=None, experiment_filters=None, experiment_offset=0, method_query=None):
+    if scope not in {'all', 'focus', 'learning','pool','experiments','methods'}:
+        raise ValueError('scope must be all, focus, learning, pool, experiments or methods')
     if cutoff.tzinfo is None:
         raise ValueError('decision cutoff must include timezone')
     day = cutoff.astimezone(ZoneInfo('Asia/Shanghai')).date()
@@ -40,21 +40,30 @@ def load_intelligence(conn, cutoff, as_of=None, stock_codes=None, limit=10, scop
     if scope in {'all','focus','pool'} and conn is not None:
         from scripts.analytics.candidate_pool import load_pool
         pool=isolated('candidate_pool',load_pool)
+    plans=None
+    if scope in {'all','focus','pool'} and conn is not None:
+        from scripts.analytics.value_plan_reader import load_plans
+        plans=isolated('daily_value_plan',load_plans)
     experiments=None
     if scope=='experiments' and conn is not None:
         from scripts.analytics.research_asset_registry import load_registry_summary,load_experiment_results
-        # Each citable row carries units and yearly method notes. Small pages
-        # prevent tool-budget compaction from skipping evidence between offsets.
+        # Units and year-specific notes remain on each citable row. Shared
+        # project methodology is projected once from the matching catalog below.
         limit=min(limit,5)
         result_rows=load_experiment_results(conn,cutoff,experiment_project,limit,experiment_filters,experiment_offset)
         experiments={'catalog':load_registry_summary(conn,cutoff,limit,experiment_project),'rows':result_rows,
                      'page_size':limit,
                      'offset':int(experiment_offset),
                      'next_offset':int(experiment_offset)+len(result_rows) if len(result_rows)==limit else None}
+    methods=None
+    if scope=='methods' and conn is not None:
+        from scripts.analytics.quant_method_library import load_methods
+        methods={'rows':load_methods(conn,cutoff,limit,method_query)}
     return {
+        'methods':methods,
         'experiments':experiments,
         'as_of_date': as_of, 'decision_cutoff': cutoff, 'scope': scope,
-        'focus': focus, 'learning': learning,'candidate_pool':pool,
+        'focus': focus, 'learning': learning,'candidate_pool':pool,'daily_value_plan':plans,
         'component_errors':component_errors,
         'usage': '研究关注解释证据变化；学习结果说明已观察表现，研究预测不自动成为买卖建议。',
     }
@@ -92,7 +101,25 @@ def compact_monitor(monitor):
 
 def intelligence_rows(state):
     """Keep compact source-bound records instead of returning uncitable prose."""
-    rows=list((state.get('experiments') or {}).get('rows',[]))
+    experiments=state.get('experiments') or {}
+    contracts={project['project_key']:project.get('result_contract') or {}
+        for project in (experiments.get('catalog') or {}).get('projects',[])}
+    rows=[]
+    for source in experiments.get('rows',[]):
+        row=dict(source)
+        # Do not repeat unrelated metric units or the same long project notes
+        # in both every row and every evidence value. The normal five-row page
+        # otherwise loses results when the tool enforces its output budget.
+        if isinstance(row.get('metrics'),dict) and isinstance(row.get('metric_units'),dict):
+            row['metric_units']={key:value for key,value in row['metric_units'].items() if key in row['metrics']}
+        shared=contracts.get(row.get('project'))
+        if (shared is not None and 'methodology_notes' in shared and 'methodology_notes' in row
+                and shared['methodology_notes']==row['methodology_notes']):
+            row.pop('methodology_notes')
+            row['methodology_ref']={'project':row['project'],
+                'location':'meta.experiment_catalog.projects[].result_contract.methodology_notes'}
+        rows.append(row)
+    rows.extend((state.get('methods') or {}).get('rows',[]))
     pool=state.get('candidate_pool') or {}
     if pool.get('status')=='available':
         mining=pool.get('mining') or {}
@@ -111,6 +138,7 @@ def intelligence_rows(state):
     for row in pool.get('rows',[]):
         rows.append({'component':'candidate_pool',**row,'as_of_date':row.get('as_of_date') or pool.get('as_of_date'),
             'available_at':row.get('available_at') or pool.get('decision_cutoff')})
+    rows.extend((state.get('daily_value_plan') or {}).get('rows',[]))
     focus=state.get('focus') or {}
     for row in focus.get('rows',[]):
         rows.append({'component':'research_focus', **{k:v for k,v in row.items() if k!='references'},

@@ -14,7 +14,7 @@ try:
 except ImportError:
  from data_asset_contracts import DATASETS
 
-SKIP_DIRS={'historical-source','code-before','code_before','.git','__pycache__','.venv','node_modules','bodies','pdfs'}
+SKIP_DIRS={'historical-source','code-before','code_before','deps','.git','__pycache__','.venv','node_modules','bodies','pdfs'}
 SUFFIXES={'.json','.jsonl','.gz','.csv','.tsv','.npz','.npy','.parquet','.md','.ipynb','.sql'}
 SECRET=re.compile(r'password|secret|api.?key|credential|authorization|private.?key|access.?token',re.I)
 RESULT_NAMES=re.compile(r'(?:result|metric|evaluation|summary|costed|protocol|manifest|quality|coverage|validation|contract)',re.I)
@@ -61,7 +61,18 @@ def register_catalog(conn):
       IS DISTINCT FROM (excluded.title,excluded.storage_kind,excluded.locator,excluded.grain,excluded.usage_contract,excluded.dependencies)
     ''',(key,title,kind,locator,grain,contract,deps))
 
-def register(conn,base):
+def project_roots(base, project_names=None):
+ if not project_names:return [base]
+ roots=[]
+ for name in sorted(set(project_names)):
+  if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9._-]*',name):raise ValueError('Invalid project name')
+  path=base/name
+  if not path.is_dir() or path.is_symlink():raise ValueError('Project must be an existing local directory')
+  roots.append(path)
+ return roots
+
+def register(conn,base,project_names=None):
+ roots=project_roots(base,project_names)
  counts={'registered':0,'unchanged':0,'changing':0,'payload_rows':0,'errors':[]}
  register_catalog(conn)
  # Raw historical downloads are registered as source datasets; their parent
@@ -69,13 +80,14 @@ def register(conn,base):
  # thousands of concurrently downloading response files as experiment results.
  for project in sorted(base.iterdir()):
   if not project.is_dir() or project.is_symlink():continue
+  if project_names and project.name not in project_names:continue
   source=project/'historical-source'
   if source.is_dir():
    conn.execute('''INSERT INTO ops.data_asset_registry(dataset_key,title,storage_kind,locator,grain,usage_contract)
      VALUES(%s,%s,'files',%s,'source document ID','原始下载目录；按同目录manifest/worklist定位；活动采集不代表完整。')
      ON CONFLICT(dataset_key) DO UPDATE SET updated_at=now()''',
      ('research.raw.'+project.name,project.name+'原始历史来源',source.relative_to(base.parent).as_posix()))
- for path in walk_artifacts(base):
+ for path in (path for root in roots for path in walk_artifacts(root)):
   relative=path.relative_to(base.parent).as_posix();project=path.relative_to(base).parts[0]
   try:
    before=path.stat()
@@ -117,6 +129,7 @@ def load_registry_summary(conn,cutoff,limit=6,project=None):
 def main():
  parser=argparse.ArgumentParser();parser.add_argument('--output',type=Path)
  parser.add_argument('--catalog-only',action='store_true',help='Refresh dataset definitions only; no artifact scan.')
+ parser.add_argument('--project',action='append',help='Register only this project under the configured research root; repeatable.')
  args=parser.parse_args()
  try:from .common import connect
  except ImportError:from common import connect
@@ -126,7 +139,7 @@ def main():
    print('Registry already running; no duplicate pass started');return 0
   if args.catalog_only:
    register_catalog(conn);conn.commit();result={'datasets':len(DATASETS),'errors':[]}
-  else:result=register(conn,__import__('xtrastock.config',fromlist=['Settings']).Settings().path('paths.research'))
+  else:result=register(conn,__import__('xtrastock.config',fromlist=['Settings']).Settings().path('paths.research'),args.project)
  result['at']=dt.datetime.now(dt.timezone.utc).isoformat()
  if args.output:args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2))
  print(json.dumps(result,ensure_ascii=False));return 1 if result['errors'] else 0
@@ -154,7 +167,7 @@ def load_experiment_contracts(conn,cutoff):
 def load_experiment_results(conn,cutoff,project=None,limit=8,filters=None,offset=0):
  """Read small result tables, without exposing file paths or promoting research."""
  filters={str(k):str(v) for k,v in (filters or {}).items()}
- if set(filters)-{'year','horizon','cost','cohort','model'}:raise ValueError('Unsupported experiment filter')
+ if set(filters)-{'year','horizon','cost','cohort','model','allocation','initial_cash','holdings'}:raise ValueError('Unsupported experiment filter')
  offset=int(offset)
  if not 0<=offset<=10000:raise ValueError('experiment_offset must be between 0 and 10000')
  records=conn.execute('''WITH latest AS (
@@ -174,7 +187,7 @@ def load_experiment_results(conn,cutoff,project=None,limit=8,filters=None,offset
      AND (c.payload IS NULL OR c.payload->'result_artifacts'->>
            substring(a.relative_path FROM length('research/'||a.project_key||'/')+1)=a.content_sha256)
      AND NOT EXISTS(SELECT 1 FROM jsonb_each_text(%s::jsonb) f WHERE
-       CASE WHEN f.key IN ('year','horizon','cost')
+       CASE WHEN f.key IN ('year','horizon','cost','initial_cash','holdings')
          AND (r.payload->>f.key) ~ '^-?[0-9]+([.][0-9]+)?$' AND f.value ~ '^-?[0-9]+([.][0-9]+)?$'
        THEN (r.payload->>f.key)::numeric IS DISTINCT FROM f.value::numeric
        ELSE r.payload->>f.key IS DISTINCT FROM f.value END)

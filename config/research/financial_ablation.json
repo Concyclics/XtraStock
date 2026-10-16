@@ -1,0 +1,114 @@
+{
+  "version": "controlled-financial-ablation-v1",
+  "capital_levels": [
+    1000000,
+    10000000
+  ],
+  "models": [
+    "annual_tree_blend",
+    "annual_profitability",
+    "annual_growth",
+    "annual_combined"
+  ],
+  "model_horizons": {
+    "annual_tree_blend": [
+      20
+    ],
+    "annual_profitability": [
+      20
+    ],
+    "annual_growth": [
+      20
+    ],
+    "annual_combined": [
+      20
+    ]
+  },
+  "cohorts": [
+    "all",
+    "discovery",
+    "cross_section_reserve"
+  ],
+  "cost_bps_per_side": [
+    15,
+    30
+  ],
+  "allocations": {
+    "k100_equal": {
+      "size": 100
+    },
+    "k100_equal_trend-refresh5-band25": {
+      "size": 100,
+      "weighting": "equal",
+      "risk_rebalance": 5,
+      "relative_no_trade_band": 0.25,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35
+    },
+    "k100_portfolio_risk24-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "target_vol": 0.24,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35,
+      "risk_rebalance": 5,
+      "vol_estimator": "portfolio",
+      "relative_no_trade_band": 0.25
+    }
+  },
+  "execution_audit": true,
+  "exposure_audit": true,
+  "selection": "Four fixed input groups: unchanged market/EPS control, profitability, growth, combined. Three previously audited portfolio rules; all results retained, no outcome-based expansion or automatic promotion.",
+  "financial_groups": {
+    "annual_profitability": [
+      "reported_gross_margin",
+      "parent_profit_to_revenue",
+      "reported_ytd_roe"
+    ],
+    "annual_growth": [
+      "reported_revenue_growth_yoy",
+      "reported_parent_profit_growth_yoy"
+    ],
+    "annual_combined": [
+      "reported_gross_margin",
+      "parent_profit_to_revenue",
+      "reported_ytd_roe",
+      "reported_revenue_growth_yoy",
+      "reported_parent_profit_growth_yoy"
+    ]
+  },
+  "financial_clock": "public_revision_reconstruction",
+  "baseline_features": 72,
+  "context_scales": {
+    "reported_period_months": 12,
+    "report_age_days": 550
+  },
+  "variants": {
+    "annual_profitability": {
+      "family": "tree_blend",
+      "cadence": "annual",
+      "half_life_sessions": null
+    },
+    "annual_growth": {
+      "family": "tree_blend",
+      "cadence": "annual",
+      "half_life_sessions": null
+    },
+    "annual_combined": {
+      "family": "tree_blend",
+      "cadence": "annual",
+      "half_life_sessions": null
+    }
+  },
+  "training_years": 3,
+  "validation_sessions": 63,
+  "label_horizon": 20,
+  "prediction_reference_map": {
+    "annual_tree_blend": "annual_tree_blend"
+  },
+  "score_blends": {},
+  "diagnostic_horizons": [
+    20
+  ],
+  "diagnostic_next_open": true
+}

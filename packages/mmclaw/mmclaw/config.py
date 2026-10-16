@@ -385,8 +385,6 @@ class ConfigManager(object):
                 "daily_report_user_id": None,
                 "daily_report_to_authorized_user": True,
                 "daily_report_max_chars": 3500,
-                "daily_report_brief_enabled": True,
-                "daily_report_brief_input_chars": 18000
             },
             "feishu": {
                 "app_id": None,
@@ -421,8 +419,6 @@ class ConfigManager(object):
                 "daily_report_group_openids": [],
                 "daily_report_group_openid": None,
                 "daily_report_max_chars": 3500,
-                "daily_report_brief_enabled": True,
-                "daily_report_brief_input_chars": 18000,
                 "file_server_dir": None,
                 "file_server_port": 8788,
                 "file_public_base_url": None
@@ -729,7 +725,7 @@ class ConfigManager(object):
                 "Check finance_data_status once before broad screens or recommendations; reuse its result in subsequent steps.\n"
                 "finance_research_intelligence returns evidence-driven attention changes, next checks, and measured learning/forecast results. "
                 "For data discovery use finance_data_status(scope='catalog'): read the registered grain, dependencies and usage_contract, then select a typed data tool. The catalog is not a completeness certificate. "
-                "For offline experiments use finance_research_intelligence(scope='experiments'). Read result_contract and metric_units, choose an exact project and matched year/cohort/horizon/cost filters, and paginate with experiment_next_offset at the same cutoff. Respect year_note and training_status; a fixed-rule diagnostic is not a trained holdout. Never infer units, production approval or the full sample from a partial result page. "
+                "For offline experiments use finance_research_intelligence(scope='experiments'). Read result_contract and metric_units, choose an exact project and matched year/cohort/horizon/cost/initial_cash filters, and paginate with experiment_next_offset at the same cutoff. Compare requested holdings explicitly; distinguish fractional-share index benchmarks from round-lot accounts. Respect year_note and training_status; a fixed-rule diagnostic is not a trained holdout. Never infer units, production approval or the full sample from a partial result page. "
                 "Use it when the goal concerns what changed, research priorities, learned outcomes or prediction quality. Attention is not a buy list. "
                 "Explain return MAE as average error in percentage points and interval coverage as observed interval coverage, never a probability of rising or profit. "
                 "For weekly/monthly trend forecasts, use forecast_validation or validation_evidence: compare errors against the named baseline, rolling-fold wins, observed coverage and paired uncertainty. A tiny error reduction with a confidence interval crossing zero is not proven skill. "

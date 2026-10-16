@@ -22,7 +22,10 @@ def analysis_capabilities(snapshot):
         'market_observations': 'market' in kinds,
         'association_analysis': 'graph_association' in kinds,
         'research_focus': any(e.get('metric_id') == 'research_focus' for e in evidence),
-        'stock_recommendations': bool(snapshot.get('hard_gate_passed') and (snapshot.get('shared_research') or {}).get('watchlist')),
+        # Editorial coverage must not promote a research screen into a trading
+        # approval. Approved plans have a separate, independently gated delivery.
+        'stock_recommendations': bool(snapshot.get('report_scope') != 'all_a_share'
+            and snapshot.get('hard_gate_passed') and (snapshot.get('shared_research') or {}).get('watchlist')),
         'numeric_forecasts': 'only_individually_approved_scenarios',
         'usage': '事实变化与研究关注可独立分析；买卖建议和数值预测另行核验。',
     }

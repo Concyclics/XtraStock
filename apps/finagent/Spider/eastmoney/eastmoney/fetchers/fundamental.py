@@ -17,8 +17,9 @@ _FIN_ITEMS = {
     "PARENT_NETPROFIT": "归母净利润",
     "BASIC_EPS": "每股收益",
     "WEIGHTAVG_ROE": "净资产收益率",
-    "GROSS_PROFIT_RATIO": "毛利率",
-    "DEBT_ASSET_RATIO": "资产负债率",
+    "XSMLL": "毛利率",
+    "BPS": "每股净资产",
+    "MGJYXJJE": "每股经营现金流",
     "YSTZ": "营收同比", "SJLTZ": "净利同比",
 }
 

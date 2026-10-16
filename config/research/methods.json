@@ -1,0 +1,929 @@
+{
+  "schema_version": 1,
+  "methods": [
+    {
+      "method_key": "characteristic_interactions",
+      "title": "动量、流动性与波动率的非线性交互",
+      "source": {
+        "title": "Empirical Asset Pricing via Machine Learning",
+        "authors": [
+          "Shihao Gu",
+          "Bryan Kelly",
+          "Dacheng Xiu"
+        ],
+        "year": 2020,
+        "url": "https://www.nber.org/papers/w25398",
+        "scope": "美国股票风险溢价；并非A股收益保证"
+      },
+      "finding": "原研究比较多种预测器，非线性交互是树模型和神经网络相对简单模型的重要增益来源，动量、流动性和波动率具有较强预测贡献。",
+      "adaptation": "先用截面排名、有限交互项和正则线性模型测试增量；复杂网络须在相同样本、成本和搜索预算下胜过该基线。",
+      "required_data": [
+        "按交易日对齐的复权价格",
+        "当时可见的成交额与成交量",
+        "成熟收益标签",
+        "历史证券样本与交易状态"
+      ],
+      "tests": [
+        "时间切分与标签成熟隔离",
+        "去掉交互项的对照",
+        "跨股票验证",
+        "扣费收益与最大回撤"
+      ],
+      "limitations": [
+        "不能把美股研究收益迁移成A股预期收益",
+        "模型复杂度增加时必须记录全部试验"
+      ],
+      "tags": [
+        "预测",
+        "机器学习",
+        "因子",
+        "动量",
+        "流动性"
+      ]
+    },
+    {
+      "method_key": "volatility_budget",
+      "title": "波动率管理与组合风险预算",
+      "source": {
+        "title": "Volatility-Managed Portfolios",
+        "authors": [
+          "Alan Moreira",
+          "Tyler Muir"
+        ],
+        "year": 2017,
+        "url": "https://www.nber.org/papers/w22208",
+        "scope": "多类因子组合；原策略与本项目的无杠杆多头约束不同"
+      },
+      "finding": "原研究检验高波动时减少风险敞口，发现风险调整后表现可以改善。",
+      "adaptation": "冻结股票预测，比较原组合协方差、20日历史市场波动、指数加权波动和按季度滚动训练的多周期风险预测。只使用近五年内已成熟的标签，无杠杆并保持同一费用、资金和仓位上限；另列去除趋势限制的对照，不用全样本波动重新缩放收益。 对原模型与盈利质量三种子集成，同条件比较趋势关闭时35%、45%、55%的目标仓位和满仓对照；先逐日核对价格损益、分红、拆股、费用与净值，再解释仓位取舍。",
+      "required_data": [
+        "历史收益序列",
+        "实际交易日历",
+        "完整现金和持仓账本"
+      ],
+      "tests": [
+        "与相同选股的满仓组合比较",
+        "波动率估计只能使用过去数据",
+        "快速反转行情",
+        "额外换手和费用",
+        "现金、持股、分红应收和逐日损益与原账户一致；分红支付不重复计收入",
+        "原模型与盈利质量集成使用相同仓位档位，保留费用和年度失败结果"
+      ],
+      "limitations": [
+        "降仓可能错过急速反弹",
+        "市场波动率不能完全代表所选股票组合风险",
+        "风险预测更准不代表选股或扣费收益更好，必须分别验收。",
+        "已反复查看的历史回测不等同独立留出验证。",
+        "趋势关闭时的目标仓位不保证实际持仓比例；本实验并非原文逆方差缩放策略。",
+        "根据已观察回撤区间作归因属于事后诊断，不能把共享历史上的仓位参数比较称为独立留出验证。"
+      ],
+      "tags": [
+        "风控",
+        "回撤",
+        "仓位",
+        "波动率",
+        "仓位下限"
+      ],
+      "implementation_status": "causal_risk_forecasts_daily_account_attribution_and_fixed_exposure_sensitivity_research_only",
+      "contrasting_evidence": {
+        "title": "On the performance of volatility-managed portfolios",
+        "authors": [
+          "Scott Cederburg",
+          "Michael S. O’Doherty",
+          "Feifei Wang",
+          "Xuemin Sterling Yan"
+        ],
+        "year": 2020,
+        "url": "https://www.sciencedirect.com/science/article/pii/S0304405X2030132X",
+        "finding": "该研究在103种股票策略中未发现波动管理普遍胜出的证据；应检验可实时实施的样本外组合，不能用事后最优权重推断收益。"
+      }
+    },
+    {
+      "method_key": "cost_aware_turnover",
+      "title": "把交易成本和排名缓冲纳入选股",
+      "source": {
+        "title": "Trading Costs of Asset Pricing Anomalies",
+        "authors": [
+          "Andrea Frazzini",
+          "Ronen Israel",
+          "Tobias J. Moskowitz"
+        ],
+        "year": 2012,
+        "url": "https://www.aqr.com/insights/research/working-paper/trading-costs-of-asset-pricing-anomalies",
+        "scope": "机构实际交易与多个发达股票市场"
+      },
+      "finding": "不同异常收益策略的成本和容量差异明显，毛收益不能替代可实施的净收益评估。",
+      "adaptation": "旧持仓设置固定排名保留区间，限制集中度和历史成交参与率，报告两档费用；逐笔记录后分别核对股数参与率、观察成交额和成交额估算下限，再将手续费、净分红、拆股和期末持仓对回净值。",
+      "required_data": [
+        "原始价格",
+        "历史成交额",
+        "股数与现金账本",
+        "费用假设",
+        "公司行动"
+      ],
+      "tests": [
+        "保留全部被拒绝和未成交订单",
+        "15和30基点每边成本",
+        "缓冲前后换手对照",
+        "不得用当天总成交量预先决定开盘订单",
+        "审计开关不得改变任何旧账本字段",
+        "股数参与率与成交额下限超限分开统计",
+        "公司行动、手续费及期末持仓损益必须与净值变化相等"
+      ],
+      "limitations": [
+        "固定基点费用不是实际冲击成本估计",
+        "开盘集合竞价容量和价格队列需要额外数据",
+        "超过成交额估算下限不能直接称为实际股数超限",
+        "日成交量足够不能证明开盘竞价可成交",
+        "按末次报价计量的停牌持仓损益不等于实际清算收益"
+      ],
+      "tags": [
+        "交易",
+        "换手",
+        "成本",
+        "容量",
+        "选股",
+        "成交审计",
+        "股数参与率",
+        "损益归因"
+      ],
+      "implementation_status": "fill_trace_and_independent_cashbook_audit_implemented_research_only"
+    },
+    {
+      "method_key": "value_momentum_diversification",
+      "title": "估值与动量的互补组合",
+      "source": {
+        "title": "Value and Momentum Everywhere",
+        "authors": [
+          "Cliff Asness",
+          "Tobias J. Moskowitz",
+          "Lasse Heje Pedersen"
+        ],
+        "year": 2013,
+        "url": "https://www.aqr.com/insights/research/journal-article/value-and-momentum-everywhere",
+        "scope": "多市场和资产类别；与A股多头账户不等价"
+      },
+      "finding": "原研究讨论估值和动量在多市场的共同特征及组合互补性。",
+      "adaptation": "把已核实的EPS估值与同机构修正作为可缺失的附加信息，保留缺失指示；不因为缺少卖方覆盖而从基础价格股票池中删除该股票。",
+      "required_data": [
+        "同口径价格",
+        "预测年度与EPS单位",
+        "研报公开时间",
+        "拆股基础",
+        "机构身份"
+      ],
+      "tests": [
+        "价格基线",
+        "估值增量",
+        "EPS修正单独增量",
+        "有无卖方覆盖分组",
+        "跨年份稳定性"
+      ],
+      "limitations": [
+        "预测EPS/价格是本项目的估值代理，不能等同原论文所有价值指标",
+        "需要保留已出现的负实验结果"
+      ],
+      "tags": [
+        "估值",
+        "EPS",
+        "盈利修正",
+        "选股",
+        "动量"
+      ]
+    },
+    {
+      "method_key": "directed_economic_links",
+      "title": "有证据的客户供应商传导图",
+      "source": {
+        "title": "Economic Links and Predictable Returns",
+        "authors": [
+          "Lauren Cohen",
+          "Andrea Frazzini"
+        ],
+        "year": 2008,
+        "url": "https://www.aqr.com/Insights/Research/Journal-Article/Economic-Links-and-Predictable-Returns",
+        "scope": "有主要客户披露的经济关联公司"
+      },
+      "finding": "原研究利用公开客户关系，检验相关公司信息吸收存在时滞所产生的收益可预测性。",
+      "adaptation": "图谱按关系方向、收入依赖、公开时间和证据质量传递事件；共同被研报覆盖只作为关联对照，不当作真实供应链。",
+      "required_data": [
+        "公开时点明确的客户供应商边",
+        "关系方向与有效期",
+        "事件原始证据",
+        "公司身份",
+        "成熟后续价格"
+      ],
+      "tests": [
+        "打乱关系的对照",
+        "逆向边对照",
+        "剔除自身传播",
+        "行业和动量基线",
+        "未审核边排除"
+      ],
+      "limitations": [
+        "缺少足够历史方向边时仅用于证据检索和解释",
+        "热点中心性本身不能作为收益因果结论"
+      ],
+      "tags": [
+        "图谱",
+        "temporal graph",
+        "热点",
+        "供应链",
+        "新闻"
+      ]
+    },
+    {
+      "method_key": "selection_bias_control",
+      "title": "多重试验与回测过拟合校正",
+      "source": {
+        "title": "The Deflated Sharpe Ratio: Correcting for Selection Bias, Backtest Overfitting, and Non-Normality",
+        "authors": [
+          "David H. Bailey",
+          "Marcos Lopez de Prado"
+        ],
+        "year": 2014,
+        "url": "https://www.davidhbailey.com/dhbpapers/deflated-sharpe.pdf",
+        "scope": "策略选择的统计评价方法"
+      },
+      "finding": "样本短、收益非正态和从多个试验挑最好结果会夸大夏普比率，原研究给出相应统计调整。",
+      "adaptation": "预先登记所有模型、配置和成本，保留失败结果；探索历史和独立验证分开，日期区块区间不冒充已校正策略搜索偏差。",
+      "required_data": [
+        "完整试验台账",
+        "所有策略收益序列",
+        "样本长度",
+        "收益偏度峰度",
+        "策略间依赖"
+      ],
+      "tests": [
+        "协议与代码指纹核对",
+        "不重用测试期选参",
+        "区块统计",
+        "独立历史和前瞻记录"
+      ],
+      "limitations": [
+        "独立试验数不能直接等于高度相关配置数",
+        "单一最好回测超过20%不足以证明稳定收益"
+      ],
+      "tags": [
+        "回测",
+        "统计",
+        "过拟合",
+        "验收"
+      ]
+    },
+    {
+      "method_key": "multiwindow_price_volume_trees",
+      "title": "多周期量价特征与滚动树模型选股",
+      "source": {
+        "title": "Qlib Alpha158 feature definitions and LightGBM benchmark",
+        "authors": [
+          "Microsoft Qlib contributors"
+        ],
+        "year": 2026,
+        "url": "https://github.com/microsoft/qlib/blob/main/qlib/contrib/data/loader.py",
+        "scope": "开源量化研究特征和模型基线；本文实现为缩减后的独立定义，不等同于复现其收益"
+      },
+      "finding": "Qlib 提供价格形态、多周期收益、波动和成交量统计等特征族，可用于检查非线性模型是否比简单线性组合获得稳定的选股增量。",
+      "adaptation": "使用本库的量价特征，比较正则线性、收益树、截面排名树和固定融合；每年只用之前成熟的标签训练，树轮数只在隔离后的历史验证段选择。",
+      "required_data": [
+        "日线开高低收与统一成交量单位",
+        "可核验的复权和分红送转历史",
+        "包含退市证券的历史样本",
+        "训练、验证与测试的市场交易日历"
+      ],
+      "tests": [
+        "修改未来行不改变此前特征",
+        "训练标签不跨过验证或测试起点",
+        "持仓和交易成本完全一致的线性基线",
+        "逐年收益、回撤和样本外排名效果",
+        "全部试验及失败数据来源均登记"
+      ],
+      "limitations": [
+        "仅有当前存续股票的样本会造成幸存者偏差",
+        "日线开盘模拟无法证明真实开盘集合竞价成交",
+        "回溯复权与历史交易状态不足时不能批准为生产预测"
+      ],
+      "tags": [
+        "预测",
+        "树模型",
+        "量价",
+        "动量",
+        "流动性",
+        "选股",
+        "Qlib"
+      ]
+    },
+    {
+      "method_key": "portfolio_covariance_budget",
+      "title": "按实际选股组合估计风险与协方差收缩",
+      "source": {
+        "title": "Honey, I Shrunk the Sample Covariance Matrix",
+        "authors": [
+          "Olivier Ledoit",
+          "Michael Wolf"
+        ],
+        "year": 2004,
+        "url": "https://www.ledoit.net/honey_abstract.htm",
+        "scope": "组合风险估计与协方差收缩；并非 A 股收益或回撤保证"
+      },
+      "finding": "原研究分析样本协方差的估计误差，提出收缩估计，并检验组合风险及跟踪误差的改善。",
+      "adaptation": "根据所选股票及目标权重的历史收益估计组合波动率，保留市场波动率方案作对照。首个实现预设 60 日窗口、40 个完整观察及 25% 对角收缩，属于简化研究方案，不等同原论文的最优收缩估计。",
+      "required_data": [
+        "仅截至信号日的可比总收益",
+        "目标证券和权重",
+        "真实交易日历",
+        "缺失观察标记",
+        "现金与未成交记录"
+      ],
+      "tests": [
+        "未来价格变化不能改变此前风险预算",
+        "比较同向和反向资产的组合风险",
+        "缺失历史不填为零收益",
+        "同选股、同费用对照回撤和净收益",
+        "估计风险与实际持仓风险偏差"
+      ],
+      "limitations": [
+        "固定收缩系数未经收益优化，需独立比较",
+        "样本不足时不生成新增目标风险敞口",
+        "无法成交会使实际持仓偏离目标预算",
+        "波动率预算不保证最大回撤上限"
+      ],
+      "tags": [
+        "风险估计",
+        "协方差",
+        "收缩",
+        "仓位",
+        "回撤"
+      ]
+    },
+    {
+      "method_key": "recent_incremental_adaptation",
+      "title": "近五年窗口内的增量学习与分布变化适应",
+      "source": {
+        "title": "DoubleAdapt: A Meta-learning Approach to Incremental Learning for Stock Trend Forecasting",
+        "authors": [
+          "Lifan Zhao",
+          "Shuming Kong",
+          "Yanyan Shen"
+        ],
+        "year": 2023,
+        "url": "https://arxiv.org/abs/2306.09862",
+        "scope": "数据与模型双适配的增量股票预测研究；本项目尚未复现其收益"
+      },
+      "finding": "原研究用数据适配器和模型适配器处理市场分布变化，收到成熟标签后更新下一阶段模型。单纯追随最新样本仍可能受到分布突变影响。",
+      "adaptation": "只在近五年主窗口内训练；先比较月度重新训练和固定近期权重，再考虑双适配器。月度更新或时间加权属于本项目简化对照，不应称为 DoubleAdapt 复现。",
+      "implementation_status": "literature_candidate_not_implemented",
+      "required_data": [
+        "真实交易日历与信号时点",
+        "已经成熟的前瞻收益标签",
+        "按日期冻结的特征和预测",
+        "训练与验证的时间隔离",
+        "统一费用和持仓约束"
+      ],
+      "tests": [
+        "每次更新排除尚未成熟的20日标签",
+        "改变未来数据不改变历史预测",
+        "与年度训练在同一窗口、成本和预算比较",
+        "保留全部更新时间和失败结果",
+        "报告跨年收益、胜率、回撤及换手"
+      ],
+      "limitations": [
+        "模型适配不能替代源数据和证券生命周期核验",
+        "论文的标签周期和组合设定不等同本项目20日收益任务",
+        "近期数据加权或更频繁更新未必提高扣费收益"
+      ],
+      "tags": [
+        "近期数据",
+        "增量学习",
+        "分布变化",
+        "滚动训练",
+        "预测",
+        "近五年"
+      ]
+    },
+    {
+      "method_key": "temporal_pattern_routing",
+      "title": "多种市场模式的预测器与动态路由",
+      "source": {
+        "title": "Learning Multiple Stock Trading Patterns with Temporal Routing Adaptor and Optimal Transport",
+        "authors": [
+          "Hengxu Lin",
+          "Dong Zhou",
+          "Weiqing Liu",
+          "Jiang Bian"
+        ],
+        "year": 2021,
+        "url": "https://arxiv.org/abs/2106.12950",
+        "scope": "股票截面排序中的多模式预测与路由；不是供应链关系图模型"
+      },
+      "finding": "原研究通过多个预测器和路由器分别建模交易模式，并用最优传输辅助学习样本分配，检验其对股票排序的改善。",
+      "adaptation": "保留单一价格模型作基线，候选模式仅使用信号时点可见的市场趋势、波动和流动性；先检验固定专家融合，再决定是否实现可学习路由。",
+      "implementation_status": "literature_candidate_not_implemented",
+      "required_data": [
+        "同一股票和日期上的多个固定模型预测",
+        "滞后市场趋势与波动特征",
+        "成熟后的逐期预测误差",
+        "训练/验证/测试时间边界"
+      ],
+      "tests": [
+        "路由器不能使用当前未成熟标签或未来误差",
+        "与相同专家的固定融合比较",
+        "检验各模式样本量和跨年稳定性",
+        "限制搜索数量并保留失败配置",
+        "同成本同仓位比较收益及回撤"
+      ],
+      "limitations": [
+        "公开实现与论文原配置应分别核对，不混用指标",
+        "模式数增加会消耗有限的近五年有效样本",
+        "相关性和排序提升不等于实际交易收益提升"
+      ],
+      "tags": [
+        "多模式",
+        "市场状态",
+        "动态路由",
+        "预测",
+        "模型融合",
+        "Qlib"
+      ]
+    },
+    {
+      "method_key": "simple_diversification_benchmark",
+      "title": "组合分散与等权基线的估计误差对照",
+      "source": {
+        "title": "Optimal Versus Naive Diversification: How Inefficient is the 1/N Portfolio Strategy?",
+        "authors": [
+          "Victor DeMiguel",
+          "Lorenzo Garlappi",
+          "Raman Uppal"
+        ],
+        "year": 2009,
+        "url": "https://doi.org/10.1093/rfs/hhm075",
+        "scope": "多组数据上的资产配置对照；研究结论不等同于本项目的 A 股选股结果"
+      },
+      "finding": "原研究发现，考虑估计误差后，复杂资产配置模型没有在各数据集和指标上稳定胜过简单等权基线。",
+      "adaptation": "固定同一批股票预测，预先比较 40、100、200 只持仓、等权和风险权重；每种资金规模使用同资金基线，单独记录整手限制、成交容量和缺失风险历史。所有行情研究仍限定近五年主窗口。",
+      "implementation_status": "fixed_prediction_portfolio_comparison_implemented_research_only",
+      "required_data": [
+        "冻结的预测分数与证券范围",
+        "历史成交和实际股数现金账本",
+        "过去收益与缺失标记",
+        "资金规模和交易成本"
+      ],
+      "tests": [
+        "同预测同期间比较持仓与权重",
+        "100 万和 1,000 万资金的同口径对照",
+        "独立核对真实初始资金和选股数量",
+        "报告全部配置而非只选最好结果",
+        "风险历史缺失导致的空仓单独统计"
+      ],
+      "limitations": [
+        "增加持仓数不必然提高收益",
+        "等权指数参考的零碎股假设不等同可交易账户",
+        "低资金规模可能受到整手约束而无法充分分散",
+        "论文并不支持靠扩大历史数据窗口就能获得指定收益"
+      ],
+      "tags": [
+        "组合",
+        "分散",
+        "等权",
+        "持仓",
+        "资金规模",
+        "估计误差",
+        "近五年"
+      ]
+    },
+    {
+      "method_key": "delisting_and_missing_terminal_returns",
+      "title": "退市事件与终止收益缺失的回测偏差",
+      "source": {
+        "title": "The Delisting Bias in CRSP Data",
+        "authors": [
+          "Tyler Shumway"
+        ],
+        "year": 1997,
+        "url": "https://doi.org/10.1111/j.1540-6261.1997.tb03818.x",
+        "scope": "美国 CRSP 退市收益缺失的研究；不提供可直接移植到 A 股的亏损填充值"
+      },
+      "finding": "原研究指出，破产等负面原因退市的股票常缺少退市收益，遗漏的损失会影响收益测量。",
+      "adaptation": "近五年样本保留后来退市的证券和无法卖出的持仓；官方摘牌日期与最后交易日分开登记，停牌只按可证实区间处理。已停止交易的持仓末值单列，未知清偿价格只做明确标注的敏感性分析。",
+      "implementation_status": "official_delisting_import_and_bounded_suspension_reconciliation_implemented_research_only",
+      "required_data": [
+        "交易所退市名单及来源原件",
+        "停牌和复牌公告",
+        "逐日真实行情和持仓现金账本",
+        "实际退市后转让或清偿信息及其获知时间"
+      ],
+      "tests": [
+        "退市从摘牌日生效，最后交易日不能代替摘牌日",
+        "已核实状态不被后来的推测覆盖",
+        "新证据不得回填历史系统获知时间",
+        "保留退市之前无法解释的行情缺口",
+        "不以当前退市状态删除历史样本或持仓"
+      ],
+      "limitations": [
+        "美国样本的退市损失参数不能直接套用 A 股",
+        "退市事实不等于已知可卖出价格或最终损失",
+        "继续停牌公告不能证明无限期停牌",
+        "证据校验不代表策略达到收益门槛"
+      ],
+      "tags": [
+        "退市",
+        "停牌",
+        "幸存者偏差",
+        "缺失收益",
+        "时点数据",
+        "近五年"
+      ]
+    },
+    {
+      "method_key": "rolling_refit_and_recency",
+      "title": "市场规律变化下的滚动重训与近期样本权重",
+      "source": {
+        "title": "DoubleAdapt: A Meta-learning Approach to Incremental Learning for Stock Trend Forecasting",
+        "authors": [
+          "Lifan Zhao",
+          "Shuming Kong",
+          "Yanyan Shen"
+        ],
+        "year": 2023,
+        "url": "https://arxiv.org/abs/2306.09862",
+        "scope": "股票预测中的分布变化与元学习；本项目先测试滚动重训对照，未复现论文的双适配器"
+      },
+      "implementation_reference": "https://github.com/SJTU-DMTai/DoubleAdapt",
+      "finding": "原研究通过数据适配器和模型适配器处理新增数据与未来市场之间的分布差异；作者实现另提示滚动重训与增量更新可以组合，更新时必须排除尚未成熟的标签。",
+      "adaptation": "固定近五年主窗口和三年滚动训练范围，对照年度、季度树模型与月度线性模型；近期加权只改变训练损失，权重按交易日数衰减，验证集仍按日期等权。所有方案先固定后评估。",
+      "implementation_status": "purged_rolling_refit_and_recency_comparison_implemented_research_only",
+      "required_data": [
+        "按实际交易日对齐的量价及估值、EPS 特征",
+        "已成熟的下一开盘后 20 交易日收益标签",
+        "按时点冻结的预测输入和证券范围",
+        "带交易成本的持仓与现金账本"
+      ],
+      "tests": [
+        "每个训练期与内层验证之间清除重叠标签",
+        "相同训练数据时首期结果应与年度基线一致",
+        "下一开盘的预测归属无空档或重复",
+        "检查点、模型及输入变更会阻止静默续跑",
+        "同资金、成本和持仓方式比较全部重训频率",
+        "预测相关性使用原始收益且不冒充交易收益"
+      ],
+      "limitations": [
+        "该实现是滚动重训及近期加权对照，不是 DoubleAdapt 元学习复现",
+        "更新更频繁或提高近期权重可能降低稳定性",
+        "已反复查看的历史样本不能当作新留出集",
+        "算术核验通过不能消除原始数据、成交容量或选择偏差"
+      ],
+      "tags": [
+        "滚动重训",
+        "近期权重",
+        "概念漂移",
+        "月度",
+        "季度",
+        "近五年",
+        "预测"
+      ]
+    },
+    {
+      "method_key": "dynamic_partial_adjustment",
+      "title": "考虑信号衰减与交易成本的渐进调仓",
+      "source": {
+        "title": "Dynamic Trading with Predictable Returns and Transaction Costs",
+        "authors": [
+          "Nicolae Gârleanu",
+          "Lasse Heje Pedersen"
+        ],
+        "year": 2013,
+        "url": "https://nbgarleanu.github.io/DynTrad.pdf",
+        "scope": "作者提供的2012年工作稿，发表于2013年Journal of Finance；商品期货案例和特定成本、风险模型"
+      },
+      "corrigendum": "https://nbgarleanu.github.io/DynTrad_corrigendum.pdf",
+      "finding": "在作者的预测与成本假设下，最优策略同时考虑未来目标的移动和信号衰减，并分步靠近目标组合。",
+      "adaptation": "在近五年的冻结年度预测上，对照25%相对目标不交易区间、50%分步调整及更宽排名保留区间；退出、降低总仓位和集中度的减仓不延迟。两档资金、两档费用、三个证券范围和三个持仓方式全部先固定再评估，报告暴露变化、成本、收益和容量。",
+      "implementation_status": "fixed_partial_adjustment_and_band_comparison_implemented_research_only",
+      "required_data": [
+        "滞后可得的股票预测与风险",
+        "股数和现金账本",
+        "成交成本和容量证据",
+        "信号保持期及衰减的训练期估计"
+      ],
+      "tests": [
+        "与立即调仓使用相同预测和起始资金",
+        "换手下降必须同时比较净收益与回撤",
+        "不能使用当日全部成交量事先下单",
+        "先固定参数，再保留全部测试结果",
+        "新字段使用默认值时，旧账本逐项不变",
+        "不交易区间不能导致计划总仓位超过同一资金上限",
+        "退出及必要的风险减仓不因分步规则延迟",
+        "执行凭证、损益和报表的容量统计独立复算"
+      ],
+      "limitations": [
+        "固定比例渐进调仓并不等于复现论文的闭式最优解",
+        "论文的商品期货结果不能直接推出A股收益",
+        "一般协方差情形应检查作者对附录A15公式的勘误",
+        "部分建仓会留下现金，费用降低不等于净收益改善",
+        "组合风险按选择的目标篮子估计，实际保留权重及未成交减仓可能偏离",
+        "方案是否改善必须读取当前已完成实验，不能根据方法描述推断"
+      ],
+      "tags": [
+        "交易",
+        "渐进调仓",
+        "信号衰减",
+        "成本",
+        "组合",
+        "近五年"
+      ]
+    },
+    {
+      "method_key": "market_risk_har",
+      "title": "多周期市场波动预测与成熟标签隔离",
+      "source": {
+        "title": "A Simple Approximate Long-Memory Model of Realized Volatility",
+        "authors": [
+          "Fulvio Corsi"
+        ],
+        "year": 2009,
+        "url": "https://statmath.wu.ac.at/~hauser/LVs/FinEtricsQF/References/Corsi2009JFinEtrics_LMmodelRealizedVola.pdf",
+        "scope": "原文使用日内高频数据构造已实现波动；本项目仅用日线平方收益，不能等同原文HAR-RV复现。"
+      },
+      "finding": "原研究用日、周、月成分刻画波动的多周期持续性，并比较简单模型的预测表现。",
+      "adaptation": "把前一日合格股票构成的市场平均收益作为公共历史背景；用1、5、22日平方收益均值的对数预测未来20日平均平方收益。每季度训练固定正则模型，仅用此前756个交易日且在主窗口内、标签已于首个信号日前成熟的样本；变换、残差均值校准和预测边界都只在训练期估计。",
+      "implementation_status": "daily_return_har_style_research_only",
+      "required_data": [
+        "统一交易日历与总收益口径",
+        "前一交易日的证券合格状态",
+        "缺失与异常行情标记",
+        "逐次训练、预测及标签完成日期",
+        "未使用未来成交量的现金股数账本"
+      ],
+      "tests": [
+        "改动未来收益不改变历史预测",
+        "训练标签不能触及首个预测信号日",
+        "主窗口前的记录仅初始化特征",
+        "少于20个合格证券或缺失收益不填零",
+        "历史波动、指数加权及训练均值用同一成熟样本比较",
+        "重叠日样本和固定20日非重叠样本分别报告",
+        "实际仓位必须使用前一交易日的预测并可从记录重算"
+      ],
+      "limitations": [
+        "日线平方收益比日内已实现波动更嘈杂。",
+        "20日风险标签为收盘到收盘风险代理，不是下一开盘可交易收益。",
+        "市场风险不能完全代表具体选股组合风险。",
+        "波动预测能力不能自动批准生产预测或交易。"
+      ],
+      "tags": [
+        "多周期波动",
+        "HAR",
+        "风险预测",
+        "成熟标签",
+        "仓位",
+        "近五年"
+      ]
+    },
+    {
+      "method_key": "multi_horizon_signal_and_turnover",
+      "title": "多预测周期与调仓频率的独立比较",
+      "source": {
+        "title": "Multi-Horizon Equity Returns Predictability via Machine Learning",
+        "authors": [
+          "Lenka Nechvátalová"
+        ],
+        "year": 2024,
+        "url": "https://journal.fsv.cuni.cz/article/multi-horizon-equity-returns-predictability-via-machine-learning/",
+        "scope": "美国及其他发达市场、多空组合；原文预测一个月至两年，区别于本项目5日和20日多头账户。"
+      },
+      "finding": "原文比较不同预测周期与交易成本，并用双重排序及买入/保留区间组合预测；预测相关性更高与扣费后收益更高并不等价。",
+      "adaptation": "固定近五年输入，用同一年度训练方式比较5日标签、既有20日标签及二者各半的截面排名融合；分别每5日或20日选股，持仓、风险预算、费用与资金保持一致。保留全部组合，不依测试收益重新加权。",
+      "required_data": [
+        "次日开盘至标签到期日收盘的完整成熟收益",
+        "训练时已公开的价格、成交及盈利预测特征",
+        "同资金和同证券范围的连续现金股数账本"
+      ],
+      "tests": [
+        "验证期与测试期标签隔离",
+        "按下一次开盘日期归属预测年份",
+        "复用的20日预测和共同账户必须逐项一致",
+        "融合只用当日可用模型，不以缺失值回退替代",
+        "分开报告预测标签天数、调仓间隔及20日账户胜率",
+        "逐项核验费用、换手、成交和年内回撤"
+      ],
+      "limitations": [
+        "固定等权排名融合是本项目改编，不是原文双重排序或买入/保留区间的复现。",
+        "5日标签成熟更早，可使用比20日标签近15个交易日的训练观察；这属于预先声明的周期差异。",
+        "调仓频率不等于实际持有期限，排名保留与无法成交都可能延长持仓。",
+        "重叠收益标签的相关性不是交易利润，也不是独立统计样本。",
+        "反复研究的历史样本需要后续前瞻验证，不能仅凭最优历史收益自动接入推荐。"
+      ],
+      "tags": [
+        "多周期",
+        "预测周期",
+        "调仓",
+        "换手",
+        "融合",
+        "短期走势"
+      ],
+      "implementation_status": "predeclared_horizon_and_selection_cadence_comparisons_implemented_research_only",
+      "supporting_evidence": {
+        "title": "Another look at trading costs and short-term reversal profits",
+        "authors": [
+          "Wilma de Groot",
+          "Joop Huij",
+          "Weili Zhou"
+        ],
+        "year": 2012,
+        "url": "https://repub.eur.nl/pub/25718/AnotherLook_2011.pdf",
+        "scope": "2011年接受稿，发表于2012年；美国和欧洲市场的短期反转。",
+        "finding": "限制高成本交易和降低换手能够改变净收益，支持把信号与组合执行分别对照。"
+      }
+    },
+    {
+      "method_key": "stock_weights_and_exposure",
+      "title": "选股信号、个股权重与总仓位分别验收",
+      "source": {
+        "title": "Characteristic-Based Mean-Variance Portfolio Choice",
+        "authors": [
+          "Erik Hjalmarsson",
+          "Peter Manchev"
+        ],
+        "year": 2009,
+        "url": "https://www.federalreserve.gov/pubs/ifdp/2009/981/ifdp981.htm",
+        "scope": "国际股票指数与特征策略的均值方差研究；不同于本项目A股无杠杆多头账户。"
+      },
+      "finding": "研究区分条件收益预测与直接组合权重估计；其特征策略等权组合也是很强的比较基线，预测模型的优势不能直接当作配置优势。",
+      "adaptation": "冻结近五年的年度树模型及多周期融合分数，交叉比较等权与逆波动个股权重，以及满仓目标、仅趋势降仓、趋势加24%或30%波动预算。核心八个配置统一每5日刷新权重、每20日选股和相同换手规则，保留旧账户作为回归对照。",
+      "required_data": [
+        "冻结的逐日证券分数及来源",
+        "历史收益、波动率和趋势信号",
+        "所选证券名单、决策时点与目标仓位",
+        "完整费用、股数和现金账本"
+      ],
+      "tests": [
+        "固定信号比较权重与总仓位规则",
+        "共同对照的全部账户和成交信息必须一致",
+        "独立计算权重上限、协方差和趋势降仓",
+        "未来收益不能改变此前风险预算",
+        "单独报告实际成交与计划仓位偏离",
+        "保留全部资金、费用、证券范围及年度结果"
+      ],
+      "limitations": [
+        "这是固定配置的消融实验，不是原文特征权重优化器的复现。",
+        "波动目标不是最大回撤保证，实际持仓还受无法成交、保留排名和取整影响。",
+        "核心配置的匹配对照只变一个规则；额外旧满仓对照同时改变刷新周期与不交易区间，不能归因为单一因素。",
+        "历史反复探索与数据来源、开盘容量限制仍然存在。"
+      ],
+      "tags": [
+        "组合",
+        "权重",
+        "等权",
+        "逆波动",
+        "仓位",
+        "风险预算",
+        "消融"
+      ],
+      "implementation_status": "fixed_weight_exposure_factorial_with_independent_budget_audit_research_only"
+    },
+    {
+      "method_key": "revision_aware_financial_quality",
+      "title": "财务修订时点与盈利质量特征",
+      "source": {
+        "title": "Quality minus junk",
+        "authors": [
+          "Clifford S. Asness",
+          "Andrea Frazzini",
+          "Lasse H. Pedersen"
+        ],
+        "year": 2018,
+        "url": "https://link.springer.com/article/10.1007/s11142-018-9470-2",
+        "scope": "美国及其他发达市场的盈利能力、成长和安全性研究；原文多空组合及长期历史不等于本项目A股多头收益。"
+      },
+      "finding": "原文以盈利能力、成长和安全性组织质量信息，发现质量与价格相关，并报告其历史多空组合的风险调整回报；原文结果不能直接视为本项目收益。",
+      "adaptation": "保留供应商原始财报版本，在近五年市场面板中分别构建修订日期约束的公开信息重建与实际系统观察视图。新增毛利率、归母利润收入比、累计ROE及营收和归母利润同比；保留报告累计月份与距期末时间，不自动年化或混用财报。 通过原市场/EPS、盈利质量、成长、合并四组消融，保持同一年度训练、20日标签和交易规则；新增字段用截面排名及缺失标记，保存模型后逐项重算预测。",
+      "required_data": [
+        "证券身份匹配的原始财报字段",
+        "首次公告、供应商更新及实际入库时点",
+        "财务期末与累计月份",
+        "字段单位和缺失状态",
+        "与原行情面板一致的证券和交易日期"
+      ],
+      "tests": [
+        "修订后值不得进入修订日前的信号",
+        "同一可见时点的冲突版本保持缺失",
+        "最新报告的缺项不得从旧报告拼接",
+        "按独立的逐报告期as-of数组核对每个选中的源版本和数值",
+        "训练标签与收益评分限定主窗口",
+        "保留公开重建与系统观察覆盖率的区别",
+        "原72列市场与EPS特征及冻结基线预测完全不变",
+        "独立排名实现重建全部新增字段并重新运行保存的岭回归与树模型",
+        "在同资金、同成本、同股票范围和同仓位规则下比较扣费及逐年结果"
+      ],
+      "limitations": [
+        "新增特征的效果须依据全部同条件扣费与逐年结果判断，排序相关性改善不能替代收益、胜率和回撤要求；重复检视的历史仍属探索。",
+        "供应商更新日期不等于完整历史版本存档，公开重建仍属研究数据。",
+        "归母利润收入比不是合并净利率，累计ROE不能当作全年ROE。",
+        "没有完整复现原文毛利润资产比、五年增长或多空组合。",
+        "每股经营现金流与每股净资产的股数口径尚未核实，因此保留原件而不构造现金流比率输入。"
+      ],
+      "tags": [
+        "财务修订",
+        "盈利质量",
+        "毛利率",
+        "ROE",
+        "成长",
+        "时点",
+        "数据覆盖",
+        "财务消融"
+      ],
+      "implementation_status": "revision_aware_financial_ablation_with_independent_feature_and_saved_model_replay_research_only"
+    },
+    {
+      "method_key": "paired_seed_financial_controls",
+      "title": "财务数值分解与训练随机性复验",
+      "source": {
+        "title": "Accounting for Variance in Machine Learning Benchmarks",
+        "authors": [
+          "Xavier Bouthillier",
+          "Pierre Delaunay",
+          "Mirko Bronzi",
+          "et al."
+        ],
+        "year": 2021,
+        "url": "https://proceedings.mlsys.org/paper_files/paper/2021/hash/0184b0cd3cfb185989f858a1d9f5c1eb-Abstract.html",
+        "scope": "一般机器学习分类基准的评估方差研究；不是金融收益证据，也不直接适用其独立同分布抽样假设。"
+      },
+      "finding": "原文研究数据抽样、训练随机性与超参数选择对评估的影响，主张比较模型时计入波动，而不是只报告一次运行或最佳结果。",
+      "adaptation": "保持近五年时间序列、年度训练和标签成熟要求；固定三个树训练种子比较原模型与盈利质量。另将盈利数值及其缺失标记，与报告可用性、月份和年龄拆分。全部配置和逐年结果保留，不随机打散金融日期或按最好种子选模。",
+      "required_data": [
+        "冻结且时点一致的行情/EPS/财务面板",
+        "原模型和盈利质量的已核验预测",
+        "保存的树参数、折次记录及现金账",
+        "固定种子与特征分组的预先声明"
+      ],
+      "tests": [
+        "默认参数、默认模型和预测保持兼容",
+        "数值变化不能进入仅时效对照，时效变化不能进入无时效数值对照",
+        "保存模型的实际种子必须与预先声明一致",
+        "只改变树种子时岭回归参数保持一致",
+        "同资金、同成本、同仓位规则和同证券范围配对",
+        "保留三个种子的全部结果和逐年差异"
+      ],
+      "limitations": [
+        "三个种子只诊断有限训练随机性，不等于三个独立市场样本。",
+        "固定年度验证和区块区间不能消除多轮历史选择偏差。",
+        "供应商修订重建、历史证券身份和实际成交能力仍有缺口。",
+        "排名或平均收益改善仍须通过原收益、胜率和回撤门槛。"
+      ],
+      "tags": [
+        "训练随机性",
+        "随机种子",
+        "财务分解",
+        "特征消融",
+        "复现",
+        "稳健性"
+      ],
+      "implementation_status": "fixed_financial_context_controls_and_paired_seed_replays_research_only"
+    },
+    {
+      "method_key": "fixed_equal_seed_ensemble",
+      "title": "固定多种子预测集成",
+      "source": {
+        "title": "Empirical Asset Pricing via Machine Learning",
+        "authors": [
+          "Shihao Gu",
+          "Bryan Kelly",
+          "Dacheng Xiu"
+        ],
+        "year": 2020,
+        "url": "https://dachxiu.chicagobooth.edu/download/ML.pdf",
+        "scope": "原文第1.7节、印刷页2246：神经网络使用多个随机初始化并平均预测，以降低训练随机性造成的波动。"
+      },
+      "finding": "相同网络用不同初始化可能产生不同预测；作者保留多个初始化并平均输出。原文没有证明本项目的A股树模型集成必然提高净收益。",
+      "adaptation": "原模型与盈利质量模型各保留三个预设种子；把每个种子的预测转换为当日横截面排名，再等权平均。两组采取相同规则，不按回测表现选择种子或学习权重，不重训现有模型。",
+      "required_data": [
+        "六组冻结且已审核的年度预测",
+        "各自的特征、种子、标签和成熟期记录",
+        "同日期可投资范围",
+        "同资金、费用和仓位规则的账户回放"
+      ],
+      "tests": [
+        "六个源预测完整保留并检查无缺失种子",
+        "SciPy独立重建全部等权排名",
+        "重新核对源模型的24个年度训练记录",
+        "240组旧账户的全部账本与成交记录一致",
+        "保留72组新增账户及逐年、逐种子对照"
+      ],
+      "limitations": [
+        "借鉴的是多初始化平均原则，本项目使用树/岭回归排名融合，并非复现原文神经网络。",
+        "三个种子共享行情和大部分训练信息，不能消除市场变化或重复选模偏差。",
+        "排名平均可能损失部分信号；收益、胜率、回撤、成本与成交能力仍须实际检验。",
+        "近五年数据窗口和原均衡门槛保持不变。"
+      ],
+      "tags": [
+        "种子集成",
+        "预测平均",
+        "模型融合",
+        "训练波动",
+        "固定权重"
+      ],
+      "implementation_status": "fixed_symmetric_three_seed_rank_means_research_only"
+    }
+  ]
+}

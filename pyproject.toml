@@ -21,7 +21,9 @@ analytics = [
   "PyMuPDF>=1.27,<2", "Pillow>=12,<13",
 ]
 gateway = ["fastapi>=0.115,<1", "uvicorn>=0.30,<1", "anyio>=4,<5"]
-dev = ["ruff>=0.11,<1", "build>=1,<2"]
+research = ["numpy>=2,<3", "pandas>=2,<3", "scipy>=1.14,<2", "lightgbm>=4.7,<5"]
+# SciPy also powers the independent financial-feature replay tests.
+dev = ["ruff>=0.11,<1", "build>=1,<2", "scipy>=1.14,<2"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

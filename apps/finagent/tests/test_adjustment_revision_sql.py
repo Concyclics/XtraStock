@@ -40,6 +40,15 @@ def main():
         last=c.execute('SELECT * FROM adjustment_factors_v3_selected ORDER BY dt DESC LIMIT 1').fetchone()
         assert abs(last['total_return_factor']-1.05)<1e-10
         print('PASS latest rejection tombstones earlier accepted document revisions')
+        c.execute('DROP TABLE adjustment_factors_v3_selected')
+        c.execute("INSERT INTO revision_canonical_bars_daily_v2(asset_id,dt,close,available_at,quality_status) VALUES(%s,'2000-01-06',10,'2000-01-06','unverified')",(aid,))
+        c.execute("UPDATE revision_canonical_bars_daily_v2 SET close=5,available_at='2030-01-01' WHERE asset_id=%s AND dt='2000-01-05'",(aid,))
+        c.execute(sql,{**params,'until':'2000-01-06'})
+        rows=c.execute('SELECT * FROM adjustment_factors_v3_selected ORDER BY dt').fetchall()
+        assert [round(r['total_return_factor'],10) for r in rows]==[1.,1.,1.1,1.1]
+        assert rows[0]['available_at'].year==2000
+        assert all(r['available_at'].year==2030 for r in rows[-2:])
+        print('PASS late ex-date price availability propagates to later factors without contaminating earlier dates')
         c.rollback()
     print('PASS all fixtures rolled back; no production rows changed')
 

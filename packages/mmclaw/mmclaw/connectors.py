@@ -16,7 +16,6 @@ import random
 import base64
 import io
 import tempfile
-from copy import deepcopy
 from datetime import datetime, timezone
 from contextlib import contextmanager
 from pathlib import Path
@@ -24,22 +23,8 @@ from .config import ConfigManager
 from .providers import Engine, prepare_image_content
 from .outbox import OutboxWorker
 from .access_control import AccessController
-from .presentation import render_finance_text, render_report_file
+from .presentation import render_finance_text, render_report_file, report_delivery_binding
 
-
-def daily_report_engine_config(config):
-    """Route report summaries independently of interactive conversation models."""
-    overrides = config.get("daily_report_generation") or {}
-    if not overrides:
-        return config
-    selected = deepcopy(config)
-    engine = selected["engines"][selected["engine_type"]]
-    for key in ("model", "reasoning_effort", "timeout"):
-        if key in overrides:
-            engine[key] = overrides[key]
-    engine["require_reasoning_effort"] = True
-    selected["provider_fallbacks"] = []
-    return selected
 
 class TerminalConnector(object):
     def __init__(self):
@@ -1134,57 +1119,18 @@ class WeChatConnector(object):
             content = render_report_file(path)
         except Exception as e:
             self._log_event("daily_report_read_failed", {"path": str(path), "error": str(e)})
-            return ["AI硬件日报暂时无法读取，请稍后重试。"]
+            return ["全市场日报暂时无法读取，请稍后重试。"]
         chunks = self._split_text_chunks(content, body_limit)
         total = len(chunks)
         messages = []
         for index, chunk in enumerate(chunks, start=1):
             if total == 1:
-                title = f"AI硬件日报 {self._today_key()}"
+                title = f"全市场日报 {self._today_key()}"
             else:
-                title = f"AI硬件日报 {self._today_key()} ({index}/{total})"
+                title = f"全市场日报 {self._today_key()} ({index}/{total})"
             messages.append(f"{title}\n\n{chunk}")
         return messages
 
-    def _daily_report_brief_message(self, path):
-        if not self._bool_config("daily_report_brief_enabled", True):
-            return None
-        max_input_chars = max(4000, self._int_config("daily_report_brief_input_chars", 18000))
-        try:
-            content = render_report_file(path)
-        except Exception as e:
-            self._log_event("daily_report_brief_failed", {"path": path, "error": f"read_failed: {e}"})
-            return None
-        if not content:
-            return None
-        prompt = (
-            "请把下面的AI硬件盘前日报压缩成适合微信群/微信私聊直接阅读的省流版。"
-            "要求：中文；不超过900字；先给结论；用短横线列表；保留关键板块、个股、风险、今日动作；"
-            "不要编造原文没有的信息；不要输出免责声明。\n\n"
-            f"日报日期：{self._today_key()}\n"
-            f"日报原文：\n{content[:max_input_chars]}"
-        )
-        try:
-            message = Engine(daily_report_engine_config(self.config)).ask(
-                [
-                    {"role": "system", "content": "你是严谨的A股AI硬件投研助理，只基于用户提供的日报内容做压缩摘要。"},
-                    {"role": "user", "content": prompt},
-                ],
-                tools=None,
-                retry=1,
-            )
-            brief = (message.get("content") or "").strip()
-        except Exception as e:
-            self._log_event("daily_report_brief_failed", {"path": path, "error": str(e)})
-            return None
-        if not brief or brief.startswith("Engine Error:"):
-            self._log_event("daily_report_brief_failed", {"path": path, "error": brief or "empty_response"})
-            return None
-        brief = render_finance_text(brief)
-        max_chars = max(500, min(self._int_config("daily_report_max_chars", 3500), 3800))
-        if len(brief) > max_chars - 80:
-            brief = brief[: max_chars - 100].rstrip() + "\n...[省流版过长已压缩截尾]"
-        return f"AI硬件日报 {self._today_key()} 省流版\n\n{brief}"
 
     def _handle_daily_report_command(self, user_id):
         today = self._today_key()
@@ -1193,14 +1139,11 @@ class WeChatConnector(object):
             self._log_event("daily_report_command_missing", {"date": today, "user_id": user_id, "dir": self._daily_report_dir()})
             self.send_messages_to_user(
                 user_id,
-                [f"今天的AI硬件日报还没有生成：{today}"],
+                [f"今天的全市场日报还没有生成：{today}"],
             )
             return True
 
         messages = self._daily_report_messages(path)
-        brief = self._daily_report_brief_message(path)
-        if brief:
-            messages = [brief] + messages
         ok = self.send_messages_to_user(user_id, messages)
         self._log_event(
             "daily_report_command_sent" if ok else "daily_report_command_failed",
@@ -1209,7 +1152,7 @@ class WeChatConnector(object):
                 "path": path,
                 "user_id": user_id,
                 "message_count": len(messages),
-                "brief_sent": bool(brief),
+                "brief_sent": False,
             },
         )
         return True
@@ -1327,9 +1270,6 @@ class WeChatConnector(object):
             self._log_event("daily_report_waiting", {"reason": "missing_report", "date": today, "dir": self._daily_report_dir()})
             return
         messages = self._daily_report_messages(path)
-        brief = self._daily_report_brief_message(path)
-        if brief:
-            messages = [brief] + messages
         for user_id in pending_user_ids:
             ok = self.send_messages_to_user(user_id, messages)
             if ok:
@@ -1338,7 +1278,7 @@ class WeChatConnector(object):
                     "last_sent_path": path,
                     "sent_at": self._now_iso(),
                     "message_count": len(messages),
-                    "brief_sent": bool(brief),
+                    "brief_sent": False,
                 }
                 state.update(
                     {
@@ -1347,18 +1287,18 @@ class WeChatConnector(object):
                         "sent_at": self._now_iso(),
                         "user_id": user_id,
                         "message_count": len(messages),
-                        "brief_sent": bool(brief),
+                        "brief_sent": False,
                     }
                 )
                 self._save_daily_report_state(state)
-                self._log_event("daily_report_pushed", {"date": today, "path": path, "user_id": user_id, "message_count": len(messages), "brief_sent": bool(brief)})
+                self._log_event("daily_report_pushed", {"date": today, "path": path, "user_id": user_id, "message_count": len(messages), "brief_sent": False})
             else:
                 sent_users[user_id] = {
                     "last_failed_date": today,
                     "last_failed_path": path,
                     "failed_at": self._now_iso(),
                     "message_count": len(messages),
-                    "brief_sent": bool(brief),
+                    "brief_sent": False,
                 }
                 self._save_daily_report_state(state)
                 self._log_event(
@@ -1368,7 +1308,7 @@ class WeChatConnector(object):
                         "path": path,
                         "user_id": user_id,
                         "message_count": len(messages),
-                        "brief_sent": bool(brief),
+                        "brief_sent": False,
                     },
                 )
 
@@ -2559,58 +2499,19 @@ class QQBotConnector(object):
             content = render_report_file(path)
         except Exception as e:
             self._log_event("daily_report_read_failed", {"path": str(path), "error": str(e)})
-            return ["AI硬件日报暂时无法读取，请稍后重试。"]
+            return ["全市场日报暂时无法读取，请稍后重试。"]
 
         chunks = self._split_text_chunks(content, body_limit)
         total = len(chunks)
         messages = []
         for index, chunk in enumerate(chunks, start=1):
             if total == 1:
-                title = f"AI硬件日报 {self._today_key()}"
+                title = f"全市场日报 {self._today_key()}"
             else:
-                title = f"AI硬件日报 {self._today_key()} ({index}/{total})"
+                title = f"全市场日报 {self._today_key()} ({index}/{total})"
             messages.append(f"{title}\n\n{chunk}")
         return messages
 
-    def _daily_report_brief_message(self, path):
-        if not self._bool_config("daily_report_brief_enabled", True):
-            return None
-        max_input_chars = max(4000, self._int_config("daily_report_brief_input_chars", 18000))
-        try:
-            content = render_report_file(path)
-        except Exception as e:
-            self._log_event("daily_report_brief_failed", {"path": path, "error": f"read_failed: {e}"})
-            return None
-        if not content:
-            return None
-        prompt = (
-            "请把下面的AI硬件盘前日报压缩成适合微信群/QQ群直接阅读的省流版。"
-            "要求：中文；不超过900字；先给结论；用短横线列表；保留关键板块、个股、风险、今日动作；"
-            "不要编造原文没有的信息；不要输出免责声明。\n\n"
-            f"日报日期：{self._today_key()}\n"
-            f"日报原文：\n{content[:max_input_chars]}"
-        )
-        try:
-            message = Engine(daily_report_engine_config(self.config)).ask(
-                [
-                    {"role": "system", "content": "你是严谨的A股AI硬件投研助理，只基于用户提供的日报内容做压缩摘要。"},
-                    {"role": "user", "content": prompt},
-                ],
-                tools=None,
-                retry=1,
-            )
-            brief = (message.get("content") or "").strip()
-        except Exception as e:
-            self._log_event("daily_report_brief_failed", {"path": path, "error": str(e)})
-            return None
-        if not brief or brief.startswith("Engine Error:"):
-            self._log_event("daily_report_brief_failed", {"path": path, "error": brief or "empty_response"})
-            return None
-        brief = render_finance_text(brief)
-        max_chars = max(500, min(self._int_config("daily_report_max_chars", 3500), 3800))
-        if len(brief) > max_chars - 80:
-            brief = brief[: max_chars - 100].rstrip() + "\n...[省流版过长已压缩截尾]"
-        return f"AI硬件日报 {self._today_key()} 省流版\n\n{brief}"
 
     async def _send_target_async(self, target_kind, target_id, text):
         if not self._api or not target_id:
@@ -2642,6 +2543,7 @@ class QQBotConnector(object):
                 {"kind": target_kind, "target_openid": target_id, "text": text, "error": str(e)},
             )
             return False
+
 
     def send_to_group(self, group_openid, message):
         if not self._loop or not group_openid:
@@ -2718,6 +2620,18 @@ class QQBotConnector(object):
                 print(f"[!] QQ daily report scheduler error: {e}")
             time.sleep(60)
 
+    def _maybe_push_value_plan(self,group_openid,today,delivered):
+        try:
+            from .value_plan_delivery import deliver_after_report
+            from .outbox import _connect
+            result=deliver_after_report(group_openid,today,delivered['last_sent_path'],delivered['sent_at'],
+                self.send_messages_to_group,_connect,self._log_event,
+                report_sha256=delivered.get('report_sha256'),report_run_id=delivered.get('report_run_id'))
+            if result['status'] not in ('disabled','waiting_for_plan','validation_pending','before_enabled_date') and result.get('parts')!=0:
+                self._log_event('daily_value_plan_delivery',result)
+        except Exception as exc:
+            self._log_event('daily_value_plan_error',{'error_type':type(exc).__name__})
+
     def _maybe_push_daily_report(self):
         if not self._daily_report_due():
             return
@@ -2728,6 +2642,12 @@ class QQBotConnector(object):
             self._log_event("daily_report_skipped", {"reason": "missing_group_openid", "date": today})
             return
         sent_groups = state.setdefault("sent_groups", {})
+        # Retry only the idempotent integrated delivery receipt. The configured
+        # integrated mode never sends a separate candidate-plan message.
+        for group_openid in group_openids:
+            delivered=sent_groups.get(group_openid,{})
+            if delivered.get('last_sent_date')==today:
+                self._maybe_push_value_plan(group_openid,today,delivered)
         # The scheduler polls every minute. Check delivery state before reading
         # the report or calling the model to summarize an already delivered day.
         if all(
@@ -2741,10 +2661,11 @@ class QQBotConnector(object):
         if not path:
             self._log_event("daily_report_waiting", {"reason": "missing_report", "date": today, "dir": self._daily_report_dir()})
             return
+        binding = report_delivery_binding(path)
         messages = self._daily_report_messages(path)
-        brief = self._daily_report_brief_message(path)
-        if brief:
-            messages = [brief] + messages
+        if report_delivery_binding(path) != binding:
+            self._log_event('daily_report_changed_during_read', {'date': today})
+            return
         for group_openid in group_openids:
             group_state = sent_groups.get(group_openid, {})
             legacy_sent = state.get("last_sent_date") == today and state.get("group_openid") == group_openid
@@ -2755,7 +2676,7 @@ class QQBotConnector(object):
                         "last_sent_path": state.get("last_sent_path", path),
                         "sent_at": state.get("sent_at", self._now_iso()),
                         "message_count": state.get("message_count", len(messages)),
-                        "brief_sent": bool(state.get("brief_sent", bool(brief))),
+                        "brief_sent": bool(state.get("brief_sent", False)),
                     }
                     self._save_daily_report_state(state)
                 continue
@@ -2764,11 +2685,12 @@ class QQBotConnector(object):
             ok = self.send_messages_to_group(group_openid, messages)
             if ok:
                 sent_groups[group_openid] = {
+                    **binding,
                     "last_sent_date": today,
                     "last_sent_path": path,
                     "sent_at": self._now_iso(),
                     "message_count": len(messages),
-                    "brief_sent": bool(brief),
+                    "brief_sent": False,
                 }
                 state.update(
                     {
@@ -2777,18 +2699,19 @@ class QQBotConnector(object):
                         "sent_at": self._now_iso(),
                         "group_openid": group_openid,
                         "message_count": len(messages),
-                        "brief_sent": bool(brief),
+                        "brief_sent": False,
                     }
                 )
                 self._save_daily_report_state(state)
-                self._log_event("daily_report_pushed", {"date": today, "path": path, "group_openid": group_openid, "message_count": len(messages), "brief_sent": bool(brief)})
+                self._log_event("daily_report_pushed", {"date": today, "path": path, "group_openid": group_openid, "message_count": len(messages), "brief_sent": False})
+                self._maybe_push_value_plan(group_openid,today,sent_groups[group_openid])
             else:
                 sent_groups[group_openid] = {
                     "last_failed_date": today,
                     "last_failed_path": path,
                     "failed_at": self._now_iso(),
                     "message_count": len(messages),
-                    "brief_sent": bool(brief),
+                    "brief_sent": False,
                 }
                 self._save_daily_report_state(state)
                 self._log_event(
@@ -2798,7 +2721,7 @@ class QQBotConnector(object):
                         "path": path,
                         "group_openid": group_openid,
                         "message_count": len(messages),
-                        "brief_sent": bool(brief),
+                        "brief_sent": False,
                     },
                 )
 

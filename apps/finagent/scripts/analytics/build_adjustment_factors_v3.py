@@ -88,10 +88,10 @@ WITH prior AS (
          )) AS total_return_factor,
          greatest(
            prior_available_at,
-           max(action_available_at) OVER (
+           max(greatest(action_available_at,bar_available_at)) OVER (
            PARTITION BY asset_id ORDER BY dt ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
            )
-         ) AS latest_action_available_at,
+         ) AS latest_input_available_at,
          bool_or(has_rights) OVER (
            PARTITION BY asset_id ORDER BY dt ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
          ) AS cumulative_rights_gap,
@@ -106,7 +106,7 @@ SELECT
     PARTITION BY asset_id ORDER BY dt ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW
   )) AS split_factor,
   total_return_factor,
-  greatest(bar_available_at,coalesce(latest_action_available_at,bar_available_at)) AS available_at,
+  greatest(bar_available_at,coalesce(latest_input_available_at,bar_available_at)) AS available_at,
   CASE
     WHEN NOT %(source_complete)s THEN 'incomplete'
     WHEN prior_quality_status='incomplete' OR cumulative_rights_gap THEN 'incomplete'

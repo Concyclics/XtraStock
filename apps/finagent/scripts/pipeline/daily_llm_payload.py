@@ -22,6 +22,12 @@ LEGACY_LIST_LIMITS = {
     "prior_daily_reports": 3,
 }
 V3_METRIC_LIMITS = {
+    "market_coverage": 1,
+    "valuation_screen": 12,
+    "sector_research_attention": 12,
+    "candidate_pool": 24,
+    "frozen_research_watchlist": 20,
+    "daily_value_plan": 4,
     "dataset_watermark": 20,
     "published_document": 30,
     "broker_report": 30,
@@ -71,6 +77,23 @@ def compact_legacy_data_pack(data_pack: dict[str, Any]) -> dict[str, Any]:
 def compact_v3_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     """Keep representative evidence from every metric within remote API limits."""
     compact = sanitized(snapshot, max_string_chars=1200)
+    # A registry catalog describes available experiments; it is not an evidence
+    # row containing their results. Hundreds of unused metric definitions used
+    # to consume the mandatory budget even after every optional row was pruned.
+    # Preserve methodology and qualification; units on actual evidence stay intact.
+    registry=compact.get('experiment_registry')
+    if isinstance(registry,dict):
+        referenced_projects={item.get('value',{}).get('project') for item in compact.get('evidence',[])
+            if isinstance(item.get('value'),dict)}
+        for project in registry.get('projects',[]):
+            contract=project.get('result_contract')
+            if isinstance(contract,dict):
+                project['result_contract']={k:v for k,v in contract.items() if k in
+                    ('status','prediction_eligible','gate_status','methodology_notes','year_notes','comparison_dimensions')}
+                if project.get('project_key') not in referenced_projects:
+                    project['result_contract']={k:v for k,v in project['result_contract'].items()
+                        if k in ('status','prediction_eligible','gate_status')}
+                    project['results_in_payload']=False
     if "shared_research" in compact:
         compact["shared_research"]={k:v for k,v in compact["shared_research"].items() if k not in ('rows','watchlist')}
     evidence = compact.get("evidence")
@@ -91,15 +114,40 @@ def compact_v3_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     # Preserve all watchlist decisions; remove duplicated context and bound
     # ancillary detail instead of dropping a stock or an evidence identifier.
     for item in selected:
+        value=item.get('value') or {}
+        if not isinstance(value,dict):
+            continue  # Scalar factor evidence is already bounded and must survive unchanged.
+        if value.get('component')=='candidate_pool_summary':
+            mining=value.get('mining') or {};notes=[]
+            for horizon in mining.get('horizons',[]):
+                for fold in horizon.get('folds',[]):
+                    # The current estimator supersedes this legacy value. Keep
+                    # every fold's current statistics, cost results and verdict.
+                    fold.pop('legacy_test_rank_ic',None)
+                    purpose=fold.pop('purpose',None)
+                    backtest=fold.get('cost_backtest') or {}
+                    limitation=backtest.pop('limitations',None)
+                    for note in (purpose,limitation):
+                        if note and note not in notes:notes.append(note)
+            if notes:mining['shared_fold_notes']=notes
         if item.get('metric_id')!='frozen_research_watchlist':
             continue
-        value=item.get('value') or {};research=value.get('research') or {}
+        research=value.get('research') or {}
+        reason=value.get('reason')
+        if isinstance(reason,dict):
+            # These detailed factor records duplicate the research projection.
+            # Retain the actual decision reasons, caveats and invalidation.
+            reason.pop('production_factors',None);reason.pop('factor_coverage',None)
+            for explanation in reason.get('reasons',[]):
+                if isinstance(explanation.get('evidence'),list):explanation['evidence']=explanation['evidence'][:1]
+                if isinstance(explanation.get('factors'),list):explanation['factors']=explanation['factors'][:2]
         # The outer value already binds membership, reason and rank. Keeping a
         # second complete decision crowds dynamic candidates out of the prompt.
         research.pop('watchlist_membership',None)
         for key in ('graph_changes',): research.pop(key,None)
-        research['actual_financials']=research.get('actual_financials',[])[:2]
-        research['factors']=research.get('factors',[])[:3]
+        research['actual_financials']=[{k:v for k,v in fact.items() if k!='asset_id'}
+            for fact in research.get('actual_financials',[])[:2]]
+        research['factors']=[{k:v for k,v in factor.items() if k!='version'} for factor in research.get('factors',[])[:3]]
         research['graph']=[{k:v for k,v in row.items() if k in (
             'source_name','target_name','relation_type','valid_from','valid_to','public_known_from',
             'review_status','source_system','document_id','evidence_text','claim_class')}
@@ -122,8 +170,22 @@ def compact_v3_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     pool_members=[item for item in selected if isinstance(item.get('value'),dict)
                   and item['value'].get('component')=='candidate_pool']
     protected_pool_ids={item['evidence_id'] for item in pool_members[:2]}
+    protected_pool_ids.update(item['evidence_id'] for item in
+        [row for row in selected if row.get('metric_id')=='daily_value_plan'][:2])
     protected_pool_ids.update(item['evidence_id'] for item in selected
         if isinstance(item.get('value'),dict) and item['value'].get('component')=='candidate_pool_summary')
+    # The report's three main inputs remain present under size pressure.
+    # Preserve two valuation companies and two industry attention rows, as well
+    # as source-diverse news and the explicit universe coverage statement.
+    for metric in ('valuation_screen','sector_research_attention','market_coverage'):
+        protected_pool_ids.update(item['evidence_id'] for item in
+            [row for row in selected if row.get('metric_id')==metric][:2])
+    sources=set()
+    for item in selected:
+        if item.get('metric_id')=='published_document':
+            source=(item.get('value') or {}).get('source_name')
+            if source not in sources:
+                sources.add(source);protected_pool_ids.add(item['evidence_id'])
     # Include the metadata overhead in the budget, not just the evidence array.
     compact["llm_payload_metadata"] = {
         "source": "data_snapshot.json", "original_evidence_count": len(evidence),

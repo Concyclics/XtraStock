@@ -1,0 +1,124 @@
+{
+  "version": "fixed-horizon-comparison-v1",
+  "training_years": 3,
+  "validation_sessions": 63,
+  "label_horizon": 5,
+  "diagnostic_horizons": [
+    5,
+    20
+  ],
+  "diagnostic_next_open": true,
+  "capital_levels": [
+    1000000,
+    10000000
+  ],
+  "models": [
+    "annual_tree_blend",
+    "annual_ridge_extended",
+    "annual_tree_h5",
+    "annual_ridge_h5",
+    "multihorizon_tree",
+    "multihorizon_ridge"
+  ],
+  "variants": {
+    "annual_tree_h5": {
+      "family": "tree_blend",
+      "cadence": "annual",
+      "half_life_sessions": null
+    },
+    "annual_ridge_h5": {
+      "family": "ridge_extended",
+      "cadence": "annual",
+      "half_life_sessions": null
+    }
+  },
+  "prediction_reference_map": {
+    "annual_tree_blend": "annual_tree_blend",
+    "annual_ridge_extended": "annual_ridge_extended"
+  },
+  "score_blends": {
+    "multihorizon_tree": {
+      "components": [
+        "annual_tree_blend",
+        "annual_tree_h5"
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ]
+    },
+    "multihorizon_ridge": {
+      "components": [
+        "annual_ridge_extended",
+        "annual_ridge_h5"
+      ],
+      "weights": [
+        0.5,
+        0.5
+      ]
+    }
+  },
+  "model_horizons": {
+    "annual_tree_blend": [
+      20
+    ],
+    "annual_ridge_extended": [
+      20
+    ],
+    "annual_tree_h5": [
+      5
+    ],
+    "annual_ridge_h5": [
+      5
+    ],
+    "multihorizon_tree": [
+      5,
+      20
+    ],
+    "multihorizon_ridge": [
+      5,
+      20
+    ]
+  },
+  "cohorts": [
+    "all",
+    "discovery",
+    "cross_section_reserve"
+  ],
+  "cost_bps_per_side": [
+    15,
+    30
+  ],
+  "allocations": {
+    "k100_equal": {
+      "size": 100
+    },
+    "k100_portfolio_risk24-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "target_vol": 0.24,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35,
+      "risk_rebalance": 5,
+      "vol_estimator": "portfolio",
+      "relative_no_trade_band": 0.25
+    },
+    "k100_equal_h5": {
+      "size": 100,
+      "rebalance": 5
+    },
+    "k100_portfolio_risk24_h5-band25": {
+      "size": 100,
+      "weighting": "inverse_volatility",
+      "target_vol": 0.24,
+      "regime": "lagged_market_trend",
+      "exposure_floor": 0.35,
+      "risk_rebalance": 5,
+      "vol_estimator": "portfolio",
+      "relative_no_trade_band": 0.25,
+      "rebalance": 5
+    }
+  },
+  "execution_audit": true,
+  "selection": "Predeclare 5-session training labels, existing 20-session controls and equal-rank blends, crossed with 5/20-session selection intervals. All results retained; no return-based expansions or automatic promotion."
+}

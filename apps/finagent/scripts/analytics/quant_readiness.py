@@ -3,6 +3,10 @@ from __future__ import annotations
 import datetime as dt
 import json
 from zoneinfo import ZoneInfo
+try:
+    from .lifecycle_evidence import lifecycle_order
+except ImportError:
+    from lifecycle_evidence import lifecycle_order
 
 VERSION='quant-readiness-v1'
 
@@ -37,9 +41,9 @@ def collect(conn,as_of):
       input_contract_version='pit-input-v1' AND knowledge_mode='system'
       AND input_quality->>'strict_pit_ready'='true' AND available_at<=%(cutoff)s) strict
       FROM factor.feature_daily WHERE dt=%(date)s""",p).fetchone())
-    e['lifecycle']=dict(conn.execute("""WITH latest AS(SELECT DISTINCT ON(asset_id) *
+    e['lifecycle']=dict(conn.execute(f"""WITH latest AS(SELECT DISTINCT ON(asset_id) *
       FROM market.asset_lifecycle_versions WHERE valid_from<=%(date)s AND (valid_to IS NULL OR valid_to>=%(date)s)
-      AND available_at<=%(cutoff)s ORDER BY asset_id,available_at DESC,lifecycle_version_id DESC)
+      AND available_at<=%(cutoff)s ORDER BY asset_id,{lifecycle_order()})
       SELECT count(*) FILTER(WHERE quality_status='verified' AND lifecycle_status='active' AND is_tradable AND NOT is_st) verified_active FROM latest""",p).fetchone())
     e['invalid_legacy']=conn.execute("""SELECT count(*) n FROM kg.relation_versions v JOIN kg.relations r USING(relation_id)
       JOIN kg.company_concept_exposures x ON x.exposure_id=split_part(r.relation_key,':',3)::uuid

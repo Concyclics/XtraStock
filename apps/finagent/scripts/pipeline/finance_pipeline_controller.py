@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import sys
-
 from xtrastock.config import bootstrap_environment
 bootstrap_environment()
 
@@ -12,8 +10,10 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable
 
 from common import ROOT, TZ, connect
@@ -33,6 +33,7 @@ class Stage:
     active_only: bool = False
     allow_terminal_dependencies: tuple[str, ...] = ()
     external_ready: Callable[[dt.date], tuple[bool, str]] | None = None
+    catchup: bool = True
 
 
 def commands(*items: list[str]) -> CommandFactory:
@@ -104,6 +105,20 @@ def outbox_command(run_date: dt.date) -> list[list[str]]:
         sys.executable, "scripts/pipeline/enqueue_daily_report_v3.py",
         "--date", run_date.isoformat(),
     ]]
+
+
+def earnings_observation_commands(run_date: dt.date) -> list[list[str]]:
+    # XtraStock bootstrap sets the configured state path. Legacy installations
+    # keep their established application-local log/state directory.
+    state=Path(os.environ.get('XTRASTOCK_STATE_DIR',str(ROOT/'logs/state')))
+    target=state/'earnings-observations'/run_date.isoformat()
+    return [[sys.executable,'scripts/analytics/collect_earnings_observations.py',
+        '--start',(run_date-dt.timedelta(days=180)).isoformat(),'--end',run_date.isoformat(),
+        '--output',str(target),'--apply']]
+
+
+def daily_plan_commands(run_date: dt.date) -> list[list[str]]:
+    return [[sys.executable,'scripts/analytics/run_daily_value_plan.py','--date',run_date.isoformat(),'--apply','--prepare-for-report']]
 
 
 def market_v2_commands(run_date: dt.date) -> list[list[str]]:
@@ -185,7 +200,8 @@ SHADOW_STAGES = (
         ), external_ready=v3_morning_jobs_idle,
     ),
     Stage("morning_quality_gate", dt.time(8, 47), quality_gate_commands, ("morning_v3_sources",)),
-    Stage("daily_report_v3", dt.time(8, 50), report_command, ("morning_quality_gate",), weekdays_only=True),
+    Stage("daily_value_plan", dt.time(8, 49), daily_plan_commands, ("morning_quality_gate",), weekdays_only=True),
+    Stage("daily_report_v3", dt.time(8, 50), report_command, ("daily_value_plan",), weekdays_only=True),
     Stage("daily_outbox_v3", dt.time(9, 5), outbox_command, ("daily_report_v3",), weekdays_only=True),
     Stage(
         "market_v2_daily", dt.time(17, 10), market_v2_commands,
@@ -217,7 +233,8 @@ ACTIVE_STAGES = (
         date_commands(lambda d:[[sys.executable,"scripts/pipeline/research_intelligence_refresh.py",
             "--date",d.isoformat(),"--scope","focus"]]),("active_news",)),
     Stage("morning_quality_gate", dt.time(8, 47), quality_gate_commands, ("active_news",)),
-    Stage("daily_report_v3", dt.time(8, 50), report_command, ("morning_quality_gate",), weekdays_only=True),
+    Stage("daily_value_plan", dt.time(8, 49), daily_plan_commands, ("morning_quality_gate",), weekdays_only=True),
+    Stage("daily_report_v3", dt.time(8, 50), report_command, ("daily_value_plan",), weekdays_only=True),
     Stage("daily_outbox_v3", dt.time(9, 5), outbox_command, ("daily_report_v3",), weekdays_only=True),
     Stage(
         "active_market_close", dt.time(17, 5),
@@ -229,6 +246,10 @@ ACTIVE_STAGES = (
         date_commands(lambda d: [[sys.executable, "scripts/pipeline/daily_reports_incremental.py", "--end-date", d.isoformat()]]),
         active_only=True,
     ),
+    Stage('earnings_observations',dt.time(18,20),earnings_observation_commands,('active_reports',),active_only=True,catchup=False),
+    Stage('daily_value_plan_settlement',dt.time(20,25),
+        date_commands(lambda d:[[sys.executable,'scripts/analytics/settle_value_plan_paper.py','--date',d.isoformat()]]),
+        ('active_market_close',),weekdays_only=True,active_only=True,external_ready=research_rebuild_idle),
     Stage(
         "active_analytics", dt.time(20, 5),
         date_commands(lambda d: [[sys.executable, "scripts/pipeline/analytics_core_refresh.py", "--date", d.isoformat()]]),
@@ -319,7 +340,7 @@ def stage_due(stage, run_date, now):
     if run_date>now.date() or (stage.weekdays_only and run_date.weekday()>=5):
         return False
     if run_date<now.date():
-        return stage.earliest>=dt.time(17) and (now.date()-run_date).days<=2
+        return stage.catchup and stage.earliest>=dt.time(17) and (now.date()-run_date).days<=2
     return now.time().replace(tzinfo=None)>=stage.earliest
 
 

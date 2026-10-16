@@ -1,0 +1,15 @@
+{
+  "version": "recent-five-years-v1",
+  "primary_data_years": 5,
+  "training_lookback_years": 3,
+  "feature_warmup_sessions": 252,
+  "warmup_in_scored_evaluation": false,
+  "collect_earlier_history_automatically": false,
+  "signal_horizons_sessions": [5, 20],
+  "cost_bps_per_side": [15, 30],
+  "target_net_calendar_cagr": 0.20,
+  "maximum_drawdown": 0.25,
+  "minimum_period_win_rate": 0.55,
+  "automatic_model_promotion": false,
+  "scope": "Prioritize the latest five years; earlier observations only initialize required rolling features. Keep incomplete current-year returns separate from full-year comparisons."
+}

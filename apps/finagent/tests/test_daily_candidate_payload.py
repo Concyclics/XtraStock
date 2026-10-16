@@ -11,6 +11,48 @@ import daily_ai_hardware_report_v3 as daily
 
 
 class CandidatePayloadTests(unittest.TestCase):
+    def test_pdf_spaced_dates_are_exact_and_do_not_cross_combine_years(self):
+        evidence={'snippet':'资产负债表：2024 年 12 月 31 日和2026 年 6 月 30 日；利润表2026 年 1-6 月。'}
+        dates=daily.date_tokens(evidence)
+        self.assertTrue({'2024-12-31','2026-06-30','2026-H1'}<=dates)
+        self.assertNotIn('2024-06-30',dates)
+        self.assertNotIn('2026-12-31',dates)
+        snapshot={'report_date':'2026-10-16','decision_cutoff':'2026-10-16T09:00:00+08:00',
+                  'market_date':'2026-10-15','hard_gate_passed':False,'evidence':[
+                      {'evidence_id':'DOC1','claim_type':'document_claim','value':evidence}]}
+        def check(text):
+            return daily.validate_claims([{'claim_id':'C1','section_name':'关键证据','claim_type':'document_claim',
+                'claim_text':text,'evidence_ids':['DOC1']}],snapshot)[1]
+        self.assertFalse(check('资产负债表包括2024年12月31日和2026年6月30日，利润表包括2026年上半年。'))
+        self.assertTrue(check('资产负债表包括2024年6月30日。'))
+
+    def test_repeated_fold_notes_keep_costs_verdicts_and_all_current_statistics(self):
+        fold={'test_rank_ic':.02,'legacy_test_rank_ic':.1,'purpose':'spread excludes fees',
+              'cost_backtest':{'executable_result':False,'cost_bps_round_trip':20,
+                  'strategy':{'cumulative_return':-.1},'limitations':'not actual fills'}}
+        source={'evidence':[{'evidence_id':'CAND0001','metric_id':'candidate_pool',
+            'value':{'component':'candidate_pool_summary','mining':{'horizons':[
+                {'horizon':20,'research_signal_validated':False,'folds':[copy.deepcopy(fold) for _ in range(3)]}]}}}]}
+        compact=compact_v3_snapshot(source)['evidence'][0]['value']['mining']
+        self.assertEqual(compact['shared_fold_notes'],['spread excludes fees','not actual fills'])
+        for result in compact['horizons'][0]['folds']:
+            self.assertEqual(result['test_rank_ic'],.02)
+            self.assertEqual(result['cost_backtest']['strategy'],{'cumulative_return':-.1})
+            self.assertFalse(result['cost_backtest']['executable_result'])
+        self.assertEqual(len(compact['horizons'][0]['folds']),3)
+        self.assertIn('purpose',source['evidence'][0]['value']['mining']['horizons'][0]['folds'][0])
+
+    def test_unused_experiment_unit_catalog_does_not_break_required_evidence(self):
+        source={'experiment_registry':{'projects':[{'project_key':'study','result_contract':{
+            'metric_units':{f'unused_{i}':'percent' for i in range(5000)},'methodology_notes':['dated evidence only'],
+            'gate_status':{'qualified':False}}}]},'evidence':[{'evidence_id':'POOL0001',
+            'metric_id':'frozen_research_watchlist','value':{'stock_code':'600000','research':{'market':{'close':10}}}}]}
+        result=compact_v3_snapshot(source)
+        self.assertLess(len(json.dumps(result)),90000)
+        self.assertEqual(result['evidence'][0]['value']['research']['market']['close'],10)
+        self.assertFalse(result['experiment_registry']['projects'][0]['results_in_payload'])
+        self.assertEqual(result['experiment_registry']['projects'][0]['result_contract']['gate_status'],{'qualified':False})
+        self.assertIn('metric_units',source['experiment_registry']['projects'][0]['result_contract'])
     def test_failed_scenario_repetition_does_not_displace_current_validation(self):
         validation={'horizon_trading_days':20,'average_error_percentage_points':10.335,
                     'observed_interval_coverage_percent':77.56,'research_validation_passed':False,

@@ -56,9 +56,14 @@ def targets(rows,limit=30):
         if len(selected)>=limit or allocation>=dec('.90'):break
     return selected
 
+try:
+    from .lifecycle_evidence import lifecycle_order
+except ImportError:
+    from lifecycle_evidence import lifecycle_order
+
 def paper_bars(conn,codes,day):
     if not codes:return {},[]
-    rows=conn.execute("""WITH selected AS(SELECT * FROM market.assets WHERE asset_type='stock' AND symbol=ANY(%s))
+    rows=conn.execute(f"""WITH selected AS(SELECT * FROM market.assets WHERE asset_type='stock' AND symbol=ANY(%s))
        SELECT a.asset_id,a.symbol code,b.open,b.high,b.low,b.close,b.amount,b.quality_status,
        prev.close previous_close,l.is_st,l.is_suspended,l.quality_status lifecycle_quality,
        a.metadata->>'listing_date_verified'='true' listing_verified,
@@ -70,7 +75,7 @@ def paper_bars(conn,codes,day):
          WHERE exchange='SSE' AND is_verified AND session_status='open' AND trade_date<%s))prev ON true
        LEFT JOIN LATERAL(SELECT * FROM market.asset_lifecycle_versions l WHERE l.asset_id=a.asset_id
            AND l.valid_from<=%s AND (l.valid_to IS NULL OR l.valid_to>=%s) AND l.available_at<=now()
-           ORDER BY available_at DESC,lifecycle_version_id DESC LIMIT 1)l ON true""",(codes,day,day,day,day,day)).fetchall()
+           ORDER BY {lifecycle_order('l')} LIMIT 1)l ON true""",(codes,day,day,day,day,day)).fetchall()
     out={};assets=[]
     for r in rows:
         code=r['code'];assets.append(r['asset_id'])
@@ -145,7 +150,7 @@ def main():
             snap=e['snapshot'];sid=snap['snapshot_id'];decision=dt.datetime.now(dt.timezone.utc)
             next_day=c.execute("""SELECT min(trade_date) d FROM market.trading_calendar WHERE exchange='SSE' AND is_verified
               AND session_status='open' AND trade_date>%s""",(decision.astimezone(TZ).date(),)).fetchone()['d']
-            rows=c.execute("""WITH cohort AS(SELECT f.dt,
+            rows=c.execute(f"""WITH cohort AS(SELECT f.dt,
               md5(string_agg(f.asset_id::text||':'||extract(epoch FROM f.updated_at)::text,',' ORDER BY f.asset_id)) cohort_hash
               FROM factor.feature_daily f JOIN market.assets a USING(asset_id) WHERE f.dt=%s
               AND a.asset_type='stock' AND NOT coalesce(a.metadata ? 'identity_alias_of',false) GROUP BY f.dt)
@@ -162,7 +167,7 @@ def main():
               JOIN market.assets a ON a.asset_id=s.asset_id
               JOIN market.canonical_bars_daily_v2 b ON b.asset_id=s.asset_id AND b.dt=f.dt AND b.quality_status='verified'
               LEFT JOIN LATERAL(SELECT * FROM market.asset_lifecycle_versions l WHERE l.asset_id=s.asset_id AND l.valid_from<=f.dt
-                AND (l.valid_to IS NULL OR l.valid_to>=f.dt) AND l.available_at<=%s ORDER BY available_at DESC,lifecycle_version_id DESC LIMIT 1)l ON true
+                AND (l.valid_to IS NULL OR l.valid_to>=f.dt) AND l.available_at<=%s ORDER BY {lifecycle_order('l')} LIMIT 1)l ON true
               LEFT JOIN analytics.asset_industry_current i ON i.asset_id=s.asset_id
               WHERE s.snapshot_id=%s AND f.available_at<=%s""",(day,day,decision,sid,decision)).fetchall()
             choices=targets(rows)
