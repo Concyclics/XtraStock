@@ -639,3 +639,49 @@ motivate accounting for evaluation variance. Their classification benchmarks
 and independent-sample resampling do not justify random train/test dates in
 financial forecasting. Chronological purges and the existing balanced gates
 remain unchanged, and no outcome automatically promotes a production model.
+
+
+## Fixed seed aggregation
+
+`seed_ensemble.json` keeps all three predeclared seeds for the original and
+full-profitability families. It ranks each seed forecast within the same-day
+eligible universe, then takes the equally weighted mean of the three ranks.
+No return-based weights, best-seed selection, model refit or missing-seed
+fallback is permitted. Both families receive the same aggregation rule.
+
+```sh
+.venv/bin/python apps/finagent/scripts/analytics/run_seed_ensemble.py \
+  --dataset "$FROZEN_MARKET_PANEL" --forecasts "$FROZEN_EPS_FEATURES" \
+  --reference-experiment "$FINANCIAL_CONTROLS_OUTPUT" \
+  --reference-verification "$FINANCIAL_CONTROLS_VERIFICATION" \
+  --study-config config/research/seed_ensemble.json --output "$SEED_ENSEMBLE_OUTPUT"
+.venv/bin/python apps/finagent/scripts/analytics/verify_seed_ensemble.py \
+  --experiment "$SEED_ENSEMBLE_OUTPUT" \
+  --dataset "$FROZEN_MARKET_PANEL" --forecasts "$FROZEN_EPS_FEATURES" \
+  --reference-experiment "$FINANCIAL_CONTROLS_OUTPUT" \
+  --reference-parent "$VERIFIED_FINANCIAL_PREDICTIONS" \
+  --reference-verification "$FINANCIAL_CONTROLS_VERIFICATION" \
+  --report "$SEED_ENSEMBLE_VERIFICATION"
+```
+
+The verifier checks the source's 24 annual fold records and immutable receipts,
+then uses independent SciPy ranks and an explicit mean to reconstruct both
+aggregates. New training-fold count is zero; source folds remain separately
+recorded. Score ownership still follows the next-open calendar. Use the same
+portfolio runner and account/exposure verifiers as the financial controls,
+with `config/research/seed_ensemble.json` and the aggregate prediction directory.
+
+Six copied scores and two aggregates produce 312 accounts under the unchanged
+allocations, capitals, cohorts and costs: 240 complete prior account controls
+and 72 new accounts. Compare each aggregate to each of its three constituents,
+and compare aggregated profitability to the aggregated original family. Keep
+all 252 matched contrasts and all 1008 annual contrasts. Report each aggregate
+relative to the mean and full range of its individual-seed account results;
+do not declare improvement solely because it beats the worst seed.
+
+[Gu, Kelly and Xiu, section 1.7](https://dachxiu.chicagobooth.edu/download/ML.pdf)
+average differently initialized neural-network forecasts. This project adapts
+the averaging principle to fixed tree/ridge rank blends; it does not replicate
+their US stock sample or infer an A-share return guarantee. Only the current
+five-year primary window is used; the unchanged balanced gates and execution
+requirements still govern any later production decision.

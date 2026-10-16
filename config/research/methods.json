@@ -875,6 +875,50 @@
         "稳健性"
       ],
       "implementation_status": "fixed_financial_context_controls_and_paired_seed_replays_research_only"
+    },
+    {
+      "method_key": "fixed_equal_seed_ensemble",
+      "title": "固定多种子预测集成",
+      "source": {
+        "title": "Empirical Asset Pricing via Machine Learning",
+        "authors": [
+          "Shihao Gu",
+          "Bryan Kelly",
+          "Dacheng Xiu"
+        ],
+        "year": 2020,
+        "url": "https://dachxiu.chicagobooth.edu/download/ML.pdf",
+        "scope": "原文第1.7节、印刷页2246：神经网络使用多个随机初始化并平均预测，以降低训练随机性造成的波动。"
+      },
+      "finding": "相同网络用不同初始化可能产生不同预测；作者保留多个初始化并平均输出。原文没有证明本项目的A股树模型集成必然提高净收益。",
+      "adaptation": "原模型与盈利质量模型各保留三个预设种子；把每个种子的预测转换为当日横截面排名，再等权平均。两组采取相同规则，不按回测表现选择种子或学习权重，不重训现有模型。",
+      "required_data": [
+        "六组冻结且已审核的年度预测",
+        "各自的特征、种子、标签和成熟期记录",
+        "同日期可投资范围",
+        "同资金、费用和仓位规则的账户回放"
+      ],
+      "tests": [
+        "六个源预测完整保留并检查无缺失种子",
+        "SciPy独立重建全部等权排名",
+        "重新核对源模型的24个年度训练记录",
+        "240组旧账户的全部账本与成交记录一致",
+        "保留72组新增账户及逐年、逐种子对照"
+      ],
+      "limitations": [
+        "借鉴的是多初始化平均原则，本项目使用树/岭回归排名融合，并非复现原文神经网络。",
+        "三个种子共享行情和大部分训练信息，不能消除市场变化或重复选模偏差。",
+        "排名平均可能损失部分信号；收益、胜率、回撤、成本与成交能力仍须实际检验。",
+        "近五年数据窗口和原均衡门槛保持不变。"
+      ],
+      "tags": [
+        "种子集成",
+        "预测平均",
+        "模型融合",
+        "训练波动",
+        "固定权重"
+      ],
+      "implementation_status": "fixed_symmetric_three_seed_rank_means_research_only"
     }
   ]
 }
