@@ -1,0 +1,18 @@
+[Unit]
+Description=FinAgent on-demand OCR and embedding GPU node
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/finagent-inference/runtime
+Environment=FINAGENT_NODE_CONFIG=%h/finagent-inference/config/node.json
+Environment=PYTHONUNBUFFERED=1
+UMask=0077
+ExecStart=%h/finagent-inference/venv312/bin/uvicorn node_daemon:create_app --factory --host 127.0.0.1 --port 18082 --no-access-log --timeout-graceful-shutdown 90
+Restart=on-failure
+RestartSec=5
+KillMode=control-group
+TimeoutStopSec=180
+
+[Install]
+WantedBy=default.target

@@ -14,7 +14,7 @@
 | `apps/finagent/scripts/search/` | 全文检索、向量队列与索引 |
 | `apps/finagent/Spider/` | 东方财富、报刊等数据源适配器 |
 | `packages/mmclaw/` | 带金融工具、证据校验和多步执行的 Agent 源码 |
-| `services/model_gateway/` | OCR / embedding 按需启动与空闲释放 |
+| `services/model_gateway/` | OCR / embedding 本机或多节点按需启动、GPU 调度与空闲释放 |
 | `database/` | PostgreSQL 基础设施、SQL 定义与增量迁移 |
 | `config/` | 无凭据的默认配置和配置样例 |
 | `deploy/` | 本地开发 Compose 与 systemd 模板 |

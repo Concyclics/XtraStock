@@ -1,0 +1,17 @@
+[Unit]
+Description=FinAgent SSH transport to a configured GPU node
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Configure this SSH alias and unique local port for each node. Keep host-key checks enabled.
+# The persistent SSH login also keeps a user manager without linger alive.
+ExecStart=/usr/bin/ssh -T -o BatchMode=yes -o StrictHostKeyChecking=yes -o ExitOnForwardFailure=yes -o ConnectTimeout=15 -o ServerAliveInterval=20 -o ServerAliveCountMax=3 -L 127.0.0.1:18803:127.0.0.1:18082 gpu-node-a "systemctl --user start finagent-inference-node.service && exec sleep infinity"
+Restart=always
+RestartSec=10
+TimeoutStopSec=15
+
+[Install]
+WantedBy=default.target

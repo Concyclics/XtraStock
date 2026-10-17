@@ -21,6 +21,8 @@ IOSchedulingClass=idle
 CPUQuota=200%
 Restart=always
 RestartSec=30
+KillMode=mixed
+TimeoutStopSec=5min
 
 [Install]
 WantedBy=default.target

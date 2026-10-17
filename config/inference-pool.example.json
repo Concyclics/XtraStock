@@ -1,0 +1,15 @@
+{
+  "status_ttl_seconds": 2,
+  "nodes": [
+    {
+      "name": "gpu-node-a",
+      "base_url": "http://127.0.0.1:18803",
+      "token_file": "~/.config/xtrastock/node-a.token"
+    },
+    {
+      "name": "gpu-node-b",
+      "base_url": "http://127.0.0.1:18804",
+      "token_file": "~/.config/xtrastock/node-b.token"
+    }
+  ]
+}

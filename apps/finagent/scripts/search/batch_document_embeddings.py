@@ -283,7 +283,7 @@ def main():
                 if stopping:break
                 inference_start=time.monotonic()
                 texts=[text for doc in group for text in doc['chunks']]
-                vectors=worker.remote_embed(texts,args.batch_size)
+                vectors=worker.remote_embed(texts,args.batch_size,stop_requested=lambda:stopping)
                 assign_vectors(group,vectors,worker.MODEL_DIMENSIONS)
                 inference_seconds=time.monotonic()-inference_start
                 write_start=time.monotonic()
@@ -310,9 +310,12 @@ def main():
             if counters['batches'] and counters['batches']%50==0:worker.refresh_embedding_watermark()
         if stopping:status='stopped_at_batch_boundary'
     except Exception as exc:
-        status='error'
-        progress({'error':f'{type(exc).__name__}: {exc}'[:1000]})
-        raise
+        if stopping and isinstance(exc, worker.InferenceCancelled):
+            status='stopped_at_batch_boundary'
+        else:
+            status='error'
+            progress({'error':f'{type(exc).__name__}: {exc}'[:1000]})
+            raise
     finally:
         release(conn,active,worker.MODEL_NAME)
         save(lease_file,[])

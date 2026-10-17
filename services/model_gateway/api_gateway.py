@@ -16,6 +16,7 @@ import anyio
 import httpx
 
 from model_lifecycle import ModelManager, ModelSpec, ModelUnavailable
+from remote_pool import RemotePool
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s %(name)s: %(message)s')
 # HTTP client logging includes request URLs; our own lifecycle log records only units.
@@ -43,16 +44,21 @@ MODEL_SPECS = [
 async def lifespan(app):
     app.state.client = httpx.AsyncClient(timeout=httpx.Timeout(3600, connect=20),
                                          limits=httpx.Limits(max_connections=40))
-    app.state.models = ModelManager(
-        MODEL_SPECS, app.state.client,
-        idle_seconds=float(os.environ.get('FINAGENT_MODEL_IDLE_SECONDS', '120')),
-        start_timeout=float(os.environ.get('FINAGENT_MODEL_START_TIMEOUT_SECONDS', '300')))
-    app.state.models.start()
+    pool_config = os.environ.get('FINAGENT_REMOTE_POOL_CONFIG', '')
+    app.state.remote_pool = RemotePool.from_file(pool_config, app.state.client) if pool_config else None
+    app.state.models = None
+    if app.state.remote_pool is None:
+        app.state.models = ModelManager(
+            MODEL_SPECS, app.state.client,
+            idle_seconds=float(os.environ.get('FINAGENT_MODEL_IDLE_SECONDS', '120')),
+            start_timeout=float(os.environ.get('FINAGENT_MODEL_START_TIMEOUT_SECONDS', '300')))
+        app.state.models.start()
     try:
         yield
     finally:
         try:
-            await app.state.models.close()
+            if app.state.models is not None:
+                await app.state.models.close()
         finally:
             await app.state.client.aclose()
 
@@ -65,8 +71,9 @@ def authenticated(request):
 
 @app.get('/health')
 async def health():
-    return {'status': 'running', 'mode': 'on_demand',
-            'scope': 'CPU gateway; local models start only for inference or explicit warmup'}
+    return {'status': 'running',
+            'mode': 'remote_on_demand' if getattr(app.state, 'remote_pool', None) else 'on_demand',
+            'scope': 'CPU gateway; models start only for inference or explicit warmup'}
 
 @app.get('/v1/models')
 async def models(request: Request):
@@ -78,6 +85,8 @@ async def models(request: Request):
 @app.get('/internal/models/status')
 async def model_status(request: Request):
     authenticated(request)
+    if getattr(request.app.state, 'remote_pool', None):
+        return await request.app.state.remote_pool.status()
     return request.app.state.models.status()
 
 @app.post('/internal/models/warmup')
@@ -90,9 +99,11 @@ async def warmup(request: Request):
     if not isinstance(payload, dict) or payload.get('model') not in {OCR_MODEL, EMBED_MODEL}:
         raise HTTPException(400, 'Choose one of the two local models')
     try:
+        if getattr(request.app.state, 'remote_pool', None):
+            return await request.app.state.remote_pool.warmup(payload['model'])
         lease = await request.app.state.models.acquire(payload['model'])
     except ModelUnavailable as error:
-        raise HTTPException(503, str(error), headers={'Retry-After': '30'})
+        raise HTTPException(503, str(error), headers={'Retry-After': '30', 'x-finagent-retryable': 'capacity'})
     with anyio.CancelScope(shield=True):
         await lease.release()
     return request.app.state.models.status()
@@ -153,12 +164,16 @@ async def proxy(endpoint: str, request: Request):
     client = request.app.state.client
     lease = None
     try:
-        if local_model:
-            lease = await request.app.state.models.acquire(local_model)
-        response = await client.send(client.build_request('POST', upstream + endpoint,
-                                                          json=payload, headers=headers), stream=True)
+        pool = getattr(request.app.state, 'remote_pool', None)
+        if local_model and pool:
+            response, lease = await pool.forward(local_model, endpoint, payload)
+        else:
+            if local_model:
+                lease = await request.app.state.models.acquire(local_model)
+            response = await client.send(client.build_request('POST', upstream + endpoint,
+                                                              json=payload, headers=headers), stream=True)
     except ModelUnavailable as error:
-        raise HTTPException(503, str(error), headers={'Retry-After': '30'})
+        raise HTTPException(503, str(error), headers={'Retry-After': '30', 'x-finagent-retryable': 'capacity'})
     except httpx.RequestError:
         if lease:
             with anyio.CancelScope(shield=True):
@@ -171,5 +186,6 @@ async def proxy(endpoint: str, request: Request):
                 await lease.release()
         raise
     forwarded_headers = {k: v for k, v in response.headers.items()
-                         if k.lower() in {'content-type', 'content-encoding', 'x-request-id', 'retry-after'}}
+                         if k.lower() in {'content-type', 'content-encoding', 'x-request-id', 'retry-after',
+                                          'x-finagent-node'}}
     return LeasedStreamingResponse(response, lease, forwarded_headers)

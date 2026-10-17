@@ -31,7 +31,7 @@ def probe():
         status['authenticated_gateway'] = response.status_code == 200
         health = requests.get(gateway_url + '/health', timeout=3)
         status['ocr_on_demand'] = (health.status_code == 200 and
-                                  health.json().get('mode') == 'on_demand' and
+                                  health.json().get('mode') in {'on_demand', 'remote_on_demand'} and
                                   any(item.get('id') == 'deepseek-ai/DeepSeek-OCR-2'
                                       for item in response.json().get('data', [])))
     except (requests.RequestException, KeyError, ValueError):

@@ -177,6 +177,7 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
         self.auth = {'Authorization': 'Bearer ' + gateway.secret}
 
     async def asyncTearDown(self):
+        gateway.app.state.remote_pool = None
         await self.client.aclose()
         await self.upstream.aclose()
 
@@ -208,6 +209,32 @@ class GatewayTests(unittest.IsolatedAsyncioTestCase):
             result = await self.client.post('/v1/embeddings', headers=self.auth, json=payload)
             self.assertEqual(result.status_code, 400)
         self.assertEqual(self.acquisitions, 0)
+
+    async def test_remote_route_does_not_acquire_local_gpu_or_use_cloud_client(self):
+        class Pool:
+            async def forward(self, model, endpoint, payload):
+                assert model == gateway.EMBED_MODEL and endpoint == 'embeddings'
+                return httpx.Response(200, stream=ByteStream(),
+                                      headers={'x-finagent-node': 'test-node'}), None
+        gateway.app.state.remote_pool = Pool()
+        response = await self.client.post('/v1/embeddings', headers=self.auth,
+                                         json={'model': gateway.EMBED_MODEL, 'input': 'synthetic'})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers['x-finagent-node'], 'test-node')
+        self.assertEqual(self.acquisitions, 0)
+        self.assertEqual(self.upstream_calls, 0)
+
+    async def test_remote_capacity_failure_never_falls_back_to_local_gpu(self):
+        class Pool:
+            async def forward(self, *args):
+                raise ModelUnavailable('synthetic no capacity')
+        gateway.app.state.remote_pool = Pool()
+        response = await self.client.post('/v1/embeddings', headers=self.auth,
+                                         json={'model': gateway.EMBED_MODEL, 'input': 'synthetic'})
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.headers['x-finagent-retryable'], 'capacity')
+        self.assertEqual(self.acquisitions, 0)
+        self.assertEqual(self.upstream_calls, 0)
 
 
 if __name__ == '__main__':
