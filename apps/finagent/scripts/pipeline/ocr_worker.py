@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import argparse
+import signal
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from pathlib import Path
@@ -190,6 +192,10 @@ def main() -> int:
     parser.add_argument("--min-age-seconds", type=int, default=600)
     args = parser.parse_args()
 
+    stopping = threading.Event()
+    signal.signal(signal.SIGTERM, lambda *_: stopping.set())
+    signal.signal(signal.SIGINT, lambda *_: stopping.set())
+
     ensure_ops_schema()
     processed = 0
     successes_since_sync = 0
@@ -202,7 +208,7 @@ def main() -> int:
     pending: dict[Future[bool], dict] = {}
     with ThreadPoolExecutor(max_workers=max(1, args.concurrency)) as executor:
         while True:
-            while len(pending) < max(1, args.concurrency):
+            while not stopping.is_set() and len(pending) < max(1, args.concurrency):
                 if args.limit and processed + len(pending) >= args.limit:
                     break
                 slots = max(1, args.concurrency) - len(pending)
@@ -215,6 +221,8 @@ def main() -> int:
                     pending[executor.submit(process_item, item, args)] = item
 
             if not pending:
+                if stopping.is_set():
+                    break
                 if args.queue_id or (args.limit and processed >= args.limit):
                     break
                 idle_rounds+=1
@@ -222,7 +230,7 @@ def main() -> int:
                 if time.monotonic()-last_idle_log>=1800:
                     print(f"[ocr_worker] idle; polling backs off to {delay}s")
                     last_idle_log=time.monotonic()
-                time.sleep(delay)
+                stopping.wait(delay)
                 continue
 
             idle_rounds=0

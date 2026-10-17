@@ -1,0 +1,43 @@
+{
+  "node_name": "gpu-node-a",
+  "token_file": "/srv/finagent-inference/config/node.token",
+  "vllm_bin": "/srv/finagent-inference/venv312/bin/vllm",
+  "runtime_dir": "/srv/finagent-inference/runtime",
+  "log_dir": "/srv/finagent-inference/logs",
+  "idle_seconds": 120,
+  "start_timeout_seconds": 420,
+  "stop_timeout_seconds": 60,
+  "gpu_guard_mib": 1024,
+  "max_external_utilization": 15,
+  "models": [
+    {
+      "name": "ocr",
+      "model": "deepseek-ai/DeepSeek-OCR-2",
+      "served_name": "deepseek-ai/DeepSeek-OCR-2",
+      "path": "/srv/finagent-inference/models/DeepSeek-OCR-2",
+      "port": 18183,
+      "memory_mib": 16384,
+      "endpoints": ["chat/completions", "completions"],
+      "arguments": [
+        "--dtype", "bfloat16", "--max-model-len", "8192",
+        "--max-num-seqs", "2", "--max-num-batched-tokens", "8192",
+        "--enforce-eager", "--no-enable-prefix-caching", "--mm-processor-cache-gb", "0",
+        "--logits-processors", "vllm.model_executor.models.deepseek_ocr:NGramPerReqLogitsProcessor"
+      ]
+    },
+    {
+      "name": "embedding",
+      "model": "Qwen/Qwen3-Embedding-0.6B",
+      "served_name": "Qwen3-Embedding-0.6B",
+      "path": "/srv/finagent-inference/models/Qwen3-Embedding-0.6B",
+      "port": 18184,
+      "memory_mib": 8192,
+      "endpoints": ["embeddings"],
+      "arguments": [
+        "--runner", "pooling", "--convert", "embed", "--hf-overrides", "{\"is_matryoshka\": true}",
+        "--max-model-len", "8192", "--max-num-seqs", "16",
+        "--max-num-batched-tokens", "8192", "--enforce-eager"
+      ]
+    }
+  ]
+}

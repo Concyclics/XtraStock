@@ -43,6 +43,7 @@ ENV_KEYS = {
     "FINAGENT_OCR_BACKEND_URL": "gateway.ocr_backend_url",
     "FINAGENT_EMBEDDING_BACKEND_URL": "gateway.embedding_backend_url",
     "FINAGENT_MODEL_IDLE_SECONDS": "gateway.idle_seconds",
+    "FINAGENT_REMOTE_POOL_CONFIG": "gateway.remote_pool_config",
     "FINANCE_OCR_BASE_URL": "ocr.base_url",
     "FINANCE_OCR_MODEL": "ocr.model",
     "FINANCE_OCR_API_KEY_ENV": "ocr.key_env",

@@ -42,6 +42,7 @@ key_env = "FINAGENT_GATEWAY_KEY"
 ocr_backend_url = "http://localhost:8083"
 embedding_backend_url = "http://localhost:8084"
 idle_seconds = 120
+remote_pool_config = ""
 
 [search]
 url = "http://localhost:7700"

@@ -23,7 +23,9 @@ import requests
 
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts/pipeline"))
+from inference_http import InferenceCancelled, post_with_capacity_wait
 
 from common import connect as pipeline_connect  # noqa: E402
 
@@ -117,7 +119,8 @@ class EmbeddingBudgetExhausted(Exception): pass
 class SourceChanged(Exception): pass
 
 
-def remote_embed(texts: list[str], batch_size: int, deadline: float | None = None) -> list[list[float]]:
+def remote_embed(texts: list[str], batch_size: int, deadline: float | None = None,
+                 stop_requested=None) -> list[list[float]]:
     api_key = os.getenv(EMBEDDING_API_KEY_ENV, "").strip()
     if not api_key:
         raise RuntimeError(f"missing embedding API key environment variable: {EMBEDDING_API_KEY_ENV}")
@@ -126,11 +129,11 @@ def remote_embed(texts: list[str], batch_size: int, deadline: float | None = Non
         if deadline is not None and time.monotonic()>=deadline:
             raise EmbeddingBudgetExhausted()
         batch = texts[start:start + batch_size]
-        response = requests.post(
+        response = post_with_capacity_wait(requests,
             EMBEDDING_BASE_URL + "/embeddings",
             headers={"Authorization": f"Bearer {api_key}"},
             json={"model": MODEL_NAME, "input": batch, "encoding_format": "float"},
-            timeout=min(180,max(1,deadline-time.monotonic())) if deadline is not None else 180,
+            timeout=480, deadline=deadline, stop_requested=stop_requested,
         )
         response.raise_for_status()
         data = sorted(response.json().get("data") or [], key=lambda item: item.get("index", 0))

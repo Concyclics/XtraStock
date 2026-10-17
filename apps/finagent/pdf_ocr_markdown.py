@@ -28,6 +28,7 @@ import requests
 from PIL import Image
 from tqdm import tqdm
 from report_attachments import convert_native, detect_format, sha256, validate_outputs
+from inference_http import post_with_capacity_wait
 
 
 DEFAULT_BASE_URL = os.getenv(
@@ -304,7 +305,7 @@ def call_ocr(
     last_error: Optional[Exception] = None
     for attempt in range(retries + 1):
         try:
-            response = session.post(url, json=payload, timeout=timeout)
+            response = post_with_capacity_wait(session, url, json=payload, timeout=max(timeout, 480))
             response.raise_for_status()
             data = response.json()
             choice = data["choices"][0]
